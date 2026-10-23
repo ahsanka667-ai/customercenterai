@@ -2,14 +2,13 @@
 
 **AI order confirmation for Facebook-first B2B sellers — in the seller's language, under the seller's brand**
 
-Version 0.2 · 23 October 2026 · Working draft
+Version 0.3 · 23 October 2026 · Working draft
 
-> **What changed in v0.2 (after your feedback)**
-> - The product is **B2B SaaS sold to sellers**; the people called are the seller's buyers.
-> - **Language is a per-seller setting**, not a Bangla-only product. Bangla + English are the first packs; the architecture supports any locale.
-> - **Messenger is the first Facebook surface**, with comments and Lead Ads after it.
-> - The stack is designed for **low COGS**: chat-first escalation, local SIP, small models, and a managed-to-self-hosted migration path.
-> - Pricing is designed to keep **60%+ gross margin** on the starter plan, not just to win logos.
+> **What changed in v0.3 (after your feedback)**
+> - **Every order gets a call by default.** Chat is for intake and a pre-call notice — not a way to avoid calling. `chat_then_call` stays as an optional mode for sellers who ask for it.
+> - **Cost reduction is in the stack, not the call volume.** The plan now compares the managed API stack against building your own voice engine (self-hosted orchestration/models + local SIP).
+> - **New Integration Hub:** an event-driven connector layer — Messenger, website, WooCommerce, Sheets, couriers, CRMs, webhooks — with retries, field mappings, and a connector SDK.
+> - Pricing and roadmap are updated for a call-first product.
 
 ---
 
@@ -35,6 +34,8 @@ Build the confirmation engine **once**. Treat the website and Facebook as **adap
 
 Because this is **B2B SaaS**, the seller is your customer. The seller configures the language, voice, brand name, script, call hours, retry rules, and confirmation mode. The buyer experiences the **seller's brand**, not yours.
 
+**Every order gets a call.** We do not cut COGS by skipping calls; we cut it by owning the call engine and the telephony route. That is why the plan has two services: a **voice engine** you control, and an **integration hub** that connects order sources and downstream tools through events, connectors, and signed webhooks.
+
 > **Assumption:** "product purchases" means consumer e-commerce orders, mostly cash-on-delivery (COD), from Facebook/Instagram sellers and website stores. The first validation market is Bangladesh because of your distribution and language advantage, but the product is built to be **market- and language-agnostic**. If you mean B2B distributor purchase orders, the same engine applies but the script, consent model, and integrations change — see §14.
 
 ### Plan at a glance
@@ -47,14 +48,15 @@ Because this is **B2B SaaS**, the seller is your customer. The seller configures
 | **Wedge** | AI voice confirmation of COD orders within 5 minutes |
 | **Core output** | Structured outcome: confirmed / cancelled / callback / wrong number / address fixed |
 | **Language** | Seller-configured default + fallback; Bangla and English first |
-| **Confirmation mode** | Chat → call escalation (configurable per seller) |
+| **Confirmation mode** | `call` by default (every order); `chat_then_call` optional |
 | **Channel strategy** | Voice out; Facebook is intake + in-window chat |
+| **Integration model** | Event bus + connector SDK + signed webhooks; REST API from day one |
 | **Build order** | Voice engine + website/CSV → Messenger → comments → Lead Ads |
 | **Voice stack (first 1,000 calls)** | Vapi or Retell + Twilio/Plivo; local SIP later |
 | **Pricing (hypothesis)** | ৳2,500–3,000/mo + per confirmed order or usage; 60%+ gross margin on Starter |
 | **Time to pilot** | 3 weeks |
 | **Time to Facebook live** | 8–12 weeks, mostly App Review |
-| **Biggest risk** | Unit economics vs. cheap human callers; local CLI, chat-first escalation, and short calls are mandatory |
+| **Biggest risk** | Unit economics vs. cheap human callers; owning orchestration + local CLI + short calls are mandatory |
 
 ### Glossary
 
@@ -87,6 +89,8 @@ Because this is **B2B SaaS**, the seller is your customer. The seller configures
 6. [End-to-end flows](#6-end-to-end-flows)
 7. [The AI call](#7-the-ai-call)
 8. [Architecture](#8-architecture)
+   - [8.6 Build your own voice engine vs buy](#86-build-your-own-voice-engine-vs-buy)
+   - [8.7 Integration hub — the system for connecting other things](#87-integration-hub--the-system-for-connecting-other-things)
 9. [Unit economics and pricing](#9-unit-economics-and-pricing)
 10. [Go-to-market](#10-go-to-market)
 11. [Roadmap](#11-roadmap)
@@ -218,24 +222,21 @@ The seller must be able to configure:
 
 **Do not sell a language until you have a QA set:** 100+ real calls, slot accuracy > 90%, and a native reviewer. A language pack without QA is a liability.
 
-### 2.5 Why cost is a product feature
+### 2.5 Why API cost is a product problem
 
-Your COGS are dominated by telephony and voice. If you use a managed voice platform plus international wholesale on every call:
+You are calling **every order**, so cost per call is the business. A managed voice platform charges ~$0.05/min on top of STT, LLM, TTS, and telephony; an international wholesale line adds another ~$0.05–0.06/min. At 1,000 calls that is manageable. At 20,000 calls it is the difference between a 40% and a 70% gross margin.
 
-- all-in cost is roughly **$0.15/min**;
-- a 1.3-minute call costs ~**$0.20 (~৳24)**;
-- at ৳15/call, you lose money;
-- at ৳25/call, you are priced out of small sellers.
+The answer is **not to call less**. It is to own more of the stack:
 
-To sell profitably, cost has to be engineered:
+- **own orchestration** (Pipecat/LiveKit) instead of a per-minute voice platform,
+- **local SIP** instead of international wholesale,
+- **self-hosted or small models** instead of premium APIs where quality allows,
+- **cached TTS and short calls** to cut per-minute usage,
+- **BYO telephony** for sellers who already have a carrier.
 
-- **chat-first** — confirm in Messenger for near-zero marginal cost; call only non-responders and high-value orders;
-- **local SIP** — typically 3–10× cheaper than international wholesale;
-- **short, structured calls** — 45–90 seconds, not open-ended chat;
-- **small models** — cheap LLM for dialogue, batch analysis after the call;
-- **BYO telephony/keys** — the seller pays the carrier, you sell software.
+There is a break-even. Self-hosting a GPU stack at 500 calls/month is usually more expensive than paying Vapi. The plan prices both paths and tells you when to switch (§9).
 
-This is covered in detail in §9.
+This is not a reason to skip the call. It is a reason to own the call engine.
 
 ---
 
@@ -413,7 +414,7 @@ The product is B2B SaaS, so configuration is part of the product, not an admin a
 | **Fallback language** | Used if the buyer speaks another supported language | English |
 | **Voice** | Gender, accent, speed, style; preview before saving | Female, neutral, friendly |
 | **Brand** | Display name, approved greeting variations, transfer number; AI disclosure is locked | Seller's Page name |
-| **Confirmation mode** | `chat`, `call`, or `chat_then_call` | `chat_then_call` |
+| **Confirmation mode** | `call` (every order), `chat_then_call` (optional), or `chat` (rare) | `call` |
 | **Call timing** | Immediate / delay / business hours | Within 5 minutes, 9am–9pm |
 | **Retries** | Number of attempts, gaps, SMS between attempts | 2 attempts, +2h, next morning |
 | **Budget cap** | Max spend per order / day / month | Plan-based |
@@ -575,25 +576,25 @@ sequenceDiagram
 
 ### 6.2 Facebook Messenger order (primary flow)
 
-1. Customer comments or DMs: "এই ড্রেসটার দাম কত?" / "order korte chai."
+1. Buyer comments or DMs: "এই ড্রেসটার দাম কত?" / "order korte chai."
 2. Bot replies in-window (or one private reply for a comment).
 3. Bot detects the buyer's language and replies in it if the seller enabled that language; otherwise uses the seller's default.
-4. **Chat confirmation first (default):** bot sends a confirmation card with product, variant, quantity, amount, and address, plus buttons:
-   - ✅ Confirm order
-   - 📍 Change address
-   - ❌ Cancel
-5. If the buyer confirms in chat and the address is complete, **no call is needed** — this is the cheapest and fastest path. Mark `confirmed_via_chat`.
-6. If the buyer does not respond within the configured time, the address is incomplete, the order is above a value threshold, or the seller chose `call` mode, proceed:
-   - collect any missing fields (phone, address, landmark),
-   - read back the summary,
-   - send a pre-call message in the buyer's language: "ধন্যবাদ! অর্ডারটি কনফার্ম করতে ২ মিনিটের মধ্যে একটি কল আসবে।"
+4. Bot collects: product, variant, quantity, name, phone, address.
+5. Bot reads back the summary and asks the buyer to confirm the details in chat. This is **data capture**, not a replacement for the call.
+6. Bot creates the order and sends a pre-call notice in the buyer's language: "ধন্যবাদ! অর্ডারটি কনফার্ম করতে ২ মিনিটের মধ্যে একটি কল আসবে।"
 7. Voice agent calls in the seller's configured language/voice.
-8. Outcome is written back; if the window is open, send a confirmation card with the final status and next steps.
-9. Seller dashboard updates; optionally auto-book courier.
+8. If no answer: SMS + retry schedule (see §6.4).
+9. Outcome is written back; if the window is open, send a confirmation card with the final status and next steps.
+10. Seller dashboard updates; optionally auto-book courier.
 
-**Why chat-first is the default:** it is nearly free, it works inside the 24-hour/7-day window, and many buyers will confirm with one tap. The call is the **escalation** for non-responders, incomplete addresses, high-value orders, and sellers who insist on voice. This one design choice can cut your telephony COGS by 40–70%.
+**Call-first is the default.** The phone call verifies reachability, intent, and the address; it is the product. Chat is the intake and the pre-call notice.
 
-**Why the pre-call message matters:** it raises answer rates, sets expectations, and gives the customer a chance to say "call me later" before you dial.
+**Optional modes:**
+
+- `chat_then_call` — send a confirmation card first; call only if the buyer does not respond, the address is incomplete, or the order is above a value threshold. Some sellers will prefer this; make it a setting, not the default.
+- `chat` — no calls. Useful only for prepaid/low-value orders; not the product you are selling.
+
+**Why the pre-call message matters:** it raises answer rates, sets expectations, and gives the buyer a chance to say "call me later" before you dial. It does not replace the call.
 
 ### 6.3 Lead Ad
 
@@ -838,24 +839,63 @@ flowchart LR
     L[Lead Ads]
   end
 
-  W --> N[Order Normalizer]
+  subgraph Core["Core API (apps/web)"]
+    N[Ingestion + Normalizer]
+    DB[(Postgres)]
+    OUTBOX[(Outbox)]
+    BUS[Event Bus]
+    WF[Workflow / Subscriptions]
+    UI[Seller Dashboard]
+  end
+
+  subgraph Voice["Voice Engine (services/voice-engine)"]
+    Q[Call Queue + Rules]
+    ORCH[Orchestrator<br/>Pipecat / LiveKit]
+    STT[STT adapter]
+    LLM[LLM adapter]
+    TTS[TTS adapter]
+    GW[Media Gateway<br/>LiveKit SIP / FreeSWITCH]
+  end
+
+  subgraph Destinations
+    COURIER[Courier / 3PL]
+    SHOP[Shop / CRM / Sheets]
+    HOOK[Customer Webhooks]
+  end
+
+  W --> N
   M --> N
   C --> N
   L --> N
+  N --> DB
+  N --> OUTBOX
+  OUTBOX --> BUS
+  BUS --> WF
+  BUS --> Q
+  BUS --> HOOK
+  WF --> COURIER
+  WF --> SHOP
 
-  N --> DB[(Postgres)]
-  N --> Q[Call Queue + Rules]
+  Q --> ORCH
+  ORCH --> STT
+  ORCH --> LLM
+  ORCH --> TTS
+  ORCH --> GW
+  GW --> P[Buyer Phone]
 
-  Q --> V[Voice Agent]
-  V --> T[Telephony Provider]
-  T --> P[Customer Phone]
-
-  V --> A[Outcome Analyzer]
+  ORCH --> A[Outcome Analyzer]
   A --> DB
-  A --> H[Webhooks / Courier]
-  DB --> UI[Seller Dashboard]
+  DB --> UI
+  A --> BUS
   A --> R[(Recordings / Transcripts)]
 ```
+
+**Two deployables:**
+
+- **`apps/web`** — dashboard, public API, integrations, billing, event bus.
+- **`services/voice-engine`** — media gateway, orchestration, model adapters, call state machine.
+
+They communicate over the event bus and a small internal API. The voice engine can scale, restart, or be replaced without touching the dashboard.
 
 ### 8.2 Components
 
@@ -865,7 +905,8 @@ flowchart LR
 | **API** | Orders, calls, webhooks, auth, billing | Next.js route handlers or Fastify |
 | **Database** | Tenants, orders, calls, outcomes, usage | Postgres (Neon/Supabase) + Drizzle/Prisma |
 | **Queue** | Call scheduling, retries, webhook processing | Redis + BullMQ (Upstash) |
-| **Voice provider** | Create/end/transfer calls; webhooks | Vapi first; `MockVoiceProvider` for dev |
+| **Voice engine** | Own orchestration, state machine, model adapters, SIP/media | `services/voice-engine` (Pipecat/LiveKit); `MockVoiceProvider` for dev |
+| **Integration hub** | Events, connectors, webhooks, retries, mappings | Postgres outbox + BullMQ + connector SDK |
 | **Telephony** | PSTN connectivity, caller ID | Twilio/Plivo first; local SIP later |
 | **Meta adapter** | OAuth, webhooks, send API, window guard | Custom module |
 | **Language service** | Locale resolution, language packs, voice mapping, fallback | Postgres + versioned JSON packs |
@@ -969,15 +1010,156 @@ Add `locale`, `voiceId`, and `scriptVersion` to `createCall`. The provider adapt
 - Cost anomaly detection: alert on calls over 3 minutes, repeated retries, or a sudden cost-per-call spike.
 - Compliance: privacy policy, DPA, subprocessor list, data deletion request flow.
 
-### 8.6 Why buy the voice stack first
+### 8.6 Build your own voice engine vs buy
 
-| Approach | Time to first call | Control | Cost at scale | Recommendation |
-|---|---|---|---|---|
-| Vapi/Retell + Twilio/Plivo | Days | Medium | Higher | **Start here** |
-| LiveKit/pipecat + own STT/LLM/TTS | Weeks | High | Lower | Migrate at ~5k+ min/month |
-| Full custom SIP/media | Months | Highest | Lowest | Only with a telecom partner |
+You said you want a separate app to do the calling work and avoid heavy API bills. That is the right instinct at volume — but the economics depend on how much you self-host.
 
-The first 500 calls are for learning, not for optimizing cost. Buy speed, then own the stack.
+| Approach | Time to first call | All-in cost/min | Control | Ops burden | Best for |
+|---|---|---:|---|---|---|
+| **Managed** (Vapi/Retell + Twilio/Plivo) | Days | ~$0.15 | Low | Low | First 500–1,000 calls; learning |
+| **Own orchestration + cloud models** (Pipecat/LiveKit + local SIP + cheap STT/TTS/LLM) | 3–6 weeks | ~$0.06–0.09 | High | Medium | 1,000–10,000 calls/month |
+| **Full self-hosted** (Pipecat + Whisper + vLLM + open TTS + local SIP) | 6–10 weeks | ~$0.02–0.05 at utilization | Highest | High | 10,000+ calls/month |
+
+**The honest math on self-hosting:**
+
+- A GPU box for a 7B–8B LLM + Whisper + TTS costs roughly **$300–700/month**.
+- At 1,000 calls (~1,300 minutes), that fixed cost is **$0.23–0.54/min** — worse than a managed API.
+- At 10,000 calls (~13,000 minutes), the same box is **$0.02–0.05/min** — much better.
+- Break-even versus a $0.15/min managed stack is roughly **2,500–4,000 calls/month**, before counting your engineering time.
+- Building the pipeline is **4–10 weeks** of work, plus ongoing model/ops maintenance.
+
+**Recommended path:**
+
+1. **Build the orchestration layer yourself from day one.** This is the “different app”: a `voice-engine` service using Pipecat or LiveKit Agents, with your own call state machine, prompts, guardrails, and tool calls. Do not let a vendor own the workflow.
+2. **Use cloud STT/TTS/LLM for the first 1,000–5,000 calls.** The per-minute API cost is small compared with telephony and orchestration; quality and speed matter more while you tune the product.
+3. **Move telephony to local SIP early.** This is the biggest immediate saving (3–10×) and improves answer rates.
+4. **Self-host models at the volume gate** — when GPU fixed cost divided by monthly minutes beats the API bill. Start with STT (faster-whisper) and the dialogue LLM (vLLM); keep cloud TTS for languages where open voices are weak.
+5. **Keep a cloud fallback per layer.** If self-hosted STT/TTS fails or quality drops, route that language back to Azure/Google/ElevenLabs. Reliability beats purity.
+
+**Voice engine architecture:**
+
+```text
+SIP / Twilio Media Stream
+   → media gateway (LiveKit SIP or Asterisk/FreeSWITCH)
+   → orchestrator (Pipecat): VAD → turn detection → barge-in
+   → STT worker (faster-whisper / cloud fallback)
+   → LLM worker (vLLM / Ollama / cloud fallback)
+   → TTS worker (Piper/XTTS / cloud fallback)
+   → tool calls (order lookup, address update, transfer)
+   → recording + transcript + outcome
+```
+
+**Bangla caveat:** open-source Bangla STT/TTS quality is behind cloud providers. Validate on 200+ real calls before switching. A hybrid — self-hosted English, cloud Bangla — is often the cheapest acceptable option. Fine-tune Whisper on your own labeled call data once you have volume.
+
+### 8.7 Integration hub — the system for connecting other things
+
+You need one event-driven layer between **order sources**, the **voice engine**, and **downstream tools**. Otherwise every merchant integration becomes a custom project.
+
+```mermaid
+flowchart LR
+  subgraph Sources
+    FB[Messenger / Comments / Lead Ads]
+    WEB[Website / WooCommerce / API]
+    CSV[CSV / Manual]
+  end
+
+  subgraph Core
+    ING[Ingestion API<br/>auth · idempotency · normalize]
+    BUS[Event bus<br/>order.created · call.completed]
+    WF[Workflow engine<br/>trigger → filter → action]
+    CONN[Connector runtime]
+    OUT[(Outbox + delivery log)]
+  end
+
+  subgraph Destinations
+    SHOP[Shopify / WooCommerce]
+    COURIER[Courier / 3PL]
+    CRM[CRM / Sheets / Slack]
+    HOOK[Customer webhooks]
+  end
+
+  FB --> ING
+  WEB --> ING
+  CSV --> ING
+  ING --> BUS
+  BUS --> WF
+  WF --> CONN
+  CONN --> SHOP
+  CONN --> COURIER
+  CONN --> CRM
+  CONN --> HOOK
+  CONN --> OUT
+```
+
+**Core concepts:**
+
+| Concept | What it is |
+|---|---|
+| **Connection** | A tenant's authorized account with a provider (OAuth token, API key, SIP credentials), encrypted at rest |
+| **Event** | A normalized fact: `order.created`, `order.updated`, `call.queued`, `call.started`, `call.completed`, `call.failed`, `message.received`, `lead.created` |
+| **Subscription** | Tenant rule: “when `call.completed` and outcome is `confirmed`, update WooCommerce and book a courier” |
+| **Action** | A connector operation: `update_order`, `create_shipment`, `send_sms`, `post_message`, `http_request` |
+| **Mapping** | Field transformation between our schema and the provider's schema; versioned |
+| **Delivery** | One attempt to execute an action, with status, response, retry count, and idempotency key |
+
+**Connector SDK (the contract every integration implements):**
+
+```ts
+export interface Connector {
+  id: string;
+  auth: "oauth2" | "api_key" | "basic" | "sip" | "none";
+  inbound?: {
+    verify(headers: Record<string, string>, rawBody: string): boolean;
+    parse(body: unknown): NormalizedEvent[];
+  };
+  actions: Record<string, (ctx: ConnectorContext, input: unknown) => Promise<ActionResult>>;
+}
+```
+
+**Built-in connectors for v1 (in order):**
+
+1. Website REST API + CSV (your own intake).
+2. Facebook Page: Messenger, comments, Lead Ads (through the Meta adapter).
+3. Generic outbound webhook + HMAC signature (this covers 80% of “integrate with my tool” requests).
+4. Google Sheets (many BD sellers run ops on Sheets).
+5. WooCommerce.
+6. One courier first — Pathao, Steadfast, RedX, or Paperfly — then the others.
+7. SMS provider / Twilio.
+8. Slack or email alerts.
+
+Later: Shopify, Zoho CRM, HubSpot, Klaviyo, Zapier/Make app, custom connectors.
+
+**Reliability rules:**
+
+- Transactional **outbox**: write the event in the same DB transaction as the order/call state change; publish asynchronously.
+- **At-least-once** delivery; every action must be idempotent.
+- Retries: 5 attempts, exponential backoff, then dead-letter queue with manual replay.
+- Circuit breaker per connector; a broken courier API must not block calls.
+- Rate limits per provider; queue per tenant so one seller cannot starve others.
+- Redact PII in logs; store payloads with retention limits.
+- Every event has a trace ID that links order → call → transcript → connector delivery.
+
+**Core tables:**
+
+```text
+connections        (id, org_id, provider, credentials_enc, scopes, status, metadata)
+events             (id, org_id, type, source, payload_json, idempotency_key, created_at)
+subscriptions      (id, org_id, event_type, connector_id, filter_json, action_json, enabled)
+deliveries         (id, event_id, subscription_id, status, attempts, next_retry_at,
+                    response_code, error, idempotency_key)
+mappings           (id, org_id, connector_id, direction, template_json, version)
+webhook_endpoints  (id, org_id, url, secret_enc, events, status)
+api_keys           (id, org_id, hashed_key, scopes, last_used_at)
+```
+
+**Build vs buy for the integration layer:**
+
+- Use **n8n/Activepieces** internally for your own ops and one-off customer automations. Do not make them the customer-facing runtime; multi-tenancy, credentials, and SLAs get messy.
+- Build the core event bus + connector runtime in the product; expose **REST API + signed webhooks** from day one.
+- A Zapier/Make app is a distribution channel later, not a v1 dependency.
+- Do not start with Kafka. Postgres outbox + Redis/BullMQ is enough until you have real scale.
+
+**Why this matters commercially:** the integration hub is what turns a calling tool into a system of record. Once a seller connects their store, courier, and CRM, switching costs rise and your product becomes part of their operations — not a call vendor they can swap.
 
 ---
 
@@ -985,89 +1167,92 @@ The first 500 calls are for learning, not for optimizing cost. Buy speed, then o
 
 > All numbers are hypotheses as of October 2026. Validate with real calls and real invoices. USD→BDT assumed at ~৳120.
 
-### 9.1 The three cost stacks
+### 9.1 Four cost stacks
 
-The same 1.3-minute call can cost roughly ৳5 or ৳24 depending on how you build it.
+You are calling every order, so the question is not “how do we avoid calls?” It is “how do we make each call cheap enough to sell profitably?”
 
-| Component | Managed (pilot) | Hybrid (early) | Optimized (scale) |
+| Component | Managed API | Own orchestration + cloud models | Full self-hosted (at 10k calls) |
 |---|---:|---:|---:|
 | Telephony | Twilio BD $0.060/min | Local SIP ~$0.010/min | Local SIP ~$0.008/min |
-| Voice orchestration | Vapi/Retell $0.050/min | Vapi/Retell $0.050/min | Self-hosted pipecat/LiveKit ~$0.005/min |
-| STT | $0.015/min | $0.008/min | $0.006/min |
-| LLM (dialogue) | $0.005/min | $0.003/min | $0.002/min |
-| TTS | $0.020/min | $0.012/min | $0.008/min |
-| **All-in per minute** | **~$0.150 (৳18)** | **~$0.083 (৳10)** | **~$0.029 (৳3.5)** |
-| Cost per attempt (1.05 blended min) | ~$0.16 (৳19) | ~$0.09 (৳10.5) | ~$0.03 (৳3.7) |
-| With 20% retry overhead | ~$0.19 (৳23) | ~$0.10 (৳12.5) | ~$0.04 (৳4.5) |
+| Orchestration | Vapi/Retell $0.050/min | Self-hosted Pipecat/LiveKit ~$0.004–0.040/min* | ~$0.005/min |
+| STT | $0.015/min | $0.008/min | Included in GPU |
+| LLM (dialogue) | $0.005/min | $0.003/min | Included in GPU |
+| TTS | $0.020/min | $0.012/min | Included in GPU |
+| GPU / hosting | — | ~$0.005/min | ~$0.031/min |
+| **All-in per minute** | **~$0.150 (৳18)** | **~$0.037–0.073 (৳4.5–8.8)** | **~$0.044 (৳5.3) at 10k; ~$0.021 at 30k** |
+| Cost per attempt (1.05 min) | ~৳19 | ~৳5–9 | ~৳5.5 at 10k; ~৳2.6 at 30k |
+| With 20% retry overhead | ~৳23 | ~৳6–11 | ~৳6.6 at 10k; ~৳3.1 at 30k |
 
-**The point:** at ৳12–15 per call, only the hybrid/optimized stack is profitable. The managed stack is a **learning tool**, not a business model.
+\* A $50/month VPS is ~$0.040/min at 1,300 minutes and ~$0.004/min at 13,000 minutes. That is why volume changes the answer.
 
-### 9.2 The cost-cutting playbook (ranked by impact)
+**The key finding:** the biggest early saving is not self-hosting the model. It is **removing the per-minute voice-platform fee and the international wholesale telephony markup**. Own orchestration + local SIP cuts cost by roughly **50–65%** at 1,000–10,000 calls. Full self-hosting only wins at high GPU utilization — roughly **25,000+ calls/month** with the assumptions above. Do not start by buying a GPU.
 
-1. **Chat-first, call escalation.** Confirm in Messenger inside the free window; call only non-responders, incomplete addresses, and high-value orders. This cuts call volume by **40–70%** and is the single biggest lever.
-2. **Local SIP / local CLI.** International wholesale is 3–10× more expensive and gets lower answer rates. Partner with a licensed local carrier per market.
-3. **BYO telephony.** Let the seller connect their own Twilio/Plivo/SIP account. You charge software only; telephony COGS goes to zero. Offer it as a "Pro" plan for larger sellers.
-4. **Short, structured calls.** 45–90 seconds, max 2 re-prompts, DTMF fallback. Do not let the agent chat about the weather.
-5. **Small models for dialogue.** Use a Flash-Lite/nano/8B-class model for the live conversation; reserve a larger model for post-call extraction, run in batch.
-6. **TTS caching.** Pre-render the greeting, disclosure, close, and DTMF prompts as audio; synthesize only the variable slots. Use standard voices by default; custom voice is an add-on.
+### 9.2 The cost-reduction playbook (call-first)
+
+1. **Own the orchestration layer.** Pipecat or LiveKit Agents running your call state machine; you stop paying $0.05/min to Vapi/Retell. This is the “different app” you described.
+2. **Move telephony to local SIP early.** International wholesale is 3–10× more expensive and gets lower answer rates. Partner with a licensed local carrier per market.
+3. **Keep cloud STT/TTS/LLM for the first 5,000 calls.** The per-minute API cost is small next to telephony; quality and speed matter more while you tune the script.
+4. **Self-host one layer at a time.** Start with STT (faster-whisper) or the dialogue LLM (vLLM), not both. Keep a cloud fallback per language.
+5. **Short, structured calls.** 45–90 seconds, max 2 re-prompts, DTMF fallback. A 3-minute call costs 2–3× a 70-second call.
+6. **TTS caching.** Pre-render the greeting, disclosure, close, and DTMF prompts; synthesize only the variable slots. Use standard voices by default; custom voice is an add-on.
 7. **AMD / voicemail detection.** Hang up on voicemail, send SMS, retry. Never pay 60 seconds for a recorded greeting.
-8. **Smart retries.** Two attempts, not five. Put SMS/Messenger between attempts; call at high-answer times.
-9. **Shared number pools.** One local number per country/tenant pool; dedicated numbers are an add-on. This reduces number rental and improves utilization.
-10. **Budgets and kill switches.** Per-order, per-day, per-month caps; alert at 80%; terminate calls over the max duration. This prevents one bug from becoming a ৳100,000 invoice.
-11. **Prepaid credits.** In BD, use bKash/Nagad/SSLCommerz; globally, Stripe. Suspend service at zero balance. Avoid accounts receivable from small sellers.
-12. **Self-host only when the math works.** Pipecat/LiveKit + Whisper/Deepgram + small models can cut per-minute cost, but engineering and ops time are real. Migrate after ~10,000 calls/month, not before.
-13. **Negotiate telephony.** Commit to volume, use least-cost routing, and keep two carriers per market. A 20% telephony discount is often easier than a 20% price increase.
-14. **Do not give away premium features.** Custom voice, sentiment, live coaching, and multilingual auto-detection are paid add-ons, not defaults.
+8. **Smart retries, not endless retries.** Two attempts plus SMS/Messenger between them; call at high-answer times.
+9. **Budgets and kill switches.** Per-order, per-day, per-month caps; alert at 80%; terminate calls over the max duration.
+10. **BYO telephony.** Let larger sellers connect their own Twilio/Plivo/SIP account; you charge software only.
+11. **Shared number pools.** One local number per country/tenant pool; dedicated numbers are an add-on.
+12. **Negotiate telephony.** Commit to volume, use least-cost routing, keep two carriers per market.
+13. **Measure GPU utilization before self-hosting.** If the GPU is idle 80% of the day, you are paying for capacity you do not use. Cloud models are cheaper until utilization is high.
+14. **Do not give away premium features.** Custom voice, sentiment, live coaching, and multilingual auto-detection are paid add-ons.
 
 ### 9.3 Build vs buy by stage
 
-| Stage | Calls/month | Stack | Cost per attempt | Why |
-|---|---|---:|---|---|
-| Pilot | < 1,000 | Vapi/Retell + Twilio/Plivo | ~৳19–25 | Speed; learn what "good" sounds like |
-| Early | 1,000–10,000 | Vapi + local SIP + cheap STT/TTS | ~৳9–13 | Cut telephony; keep orchestration |
-| Scale | 10,000–100,000 | Self-hosted pipecat/LiveKit + local SIP + small models | ~৳4–7 | Margin; control; custom voices |
-| Enterprise | 100,000+ | Multi-carrier SIP, GPU pool, custom models | ~৳3–5 | Unit economics and SLAs |
+| Stage | Calls/month | Recommended stack | Cost per attempt | Why |
+|---|---|---:|---:|---|
+| Pilot | < 1,000 | Managed (Vapi/Retell + Twilio) | ~৳19–23 | Fastest path to real calls; no ops burden |
+| Early | 1,000–10,000 | **Own orchestration + local SIP + cloud models** | ~৳6–11 | Cuts platform fee and telephony markup |
+| Scale | 10,000–30,000 | Own orchestration + local SIP + self-hosted STT/LLM; cloud TTS for weak languages | ~৳4–7 | Best balance of quality and cost |
+| High volume | 30,000+ | Full self-hosted + multi-carrier SIP | ~৳2.5–4 | GPU utilization high enough to win |
 
-**Do not migrate early.** A self-hosted stack at 2,000 calls/month is usually more expensive than Vapi once you count engineering time. Use the `VoiceProvider` interface and revisit at the volume gate.
+**Break-even math:** at ~$400/month GPU fixed cost, self-hosting beats a $0.05/min cloud-model stack at roughly **8,000–10,000 minutes/month** (about 6,000–8,000 calls), before engineering time. It beats the managed stack earlier, but that is because the managed stack is expensive — own orchestration + cloud models already captures most of the saving.
 
-**If you are cost-constrained from day one:** get to the first 100 calls for under ~$50 using Vapi/Retell trial credits, Twilio trial credit, Google/Azure free tiers for STT/TTS, and Gemini Flash-Lite's free tier. Treat this as validation only — free tiers are not production SLAs, and the terms may restrict commercial use. The first paying seller should fund the move to a paid local SIP account.
+**The practical recommendation:** build the voice engine as your own service now; run it on cloud models and local SIP. Add self-hosted models when you cross ~10,000 calls/month and can keep the GPU busy. Do not wait for perfect self-hosting to start selling.
 
 ### 9.4 Pricing that leaves margin
 
-The plan is a **platform fee + included calls + overage**, not unlimited.
+Because you are calling every order, your price must cover a real call for every order — including no-answers and cancellations. Do not price like a chat tool.
 
-| Plan | Price | Included calls | Overage | Cost at ৳4/attempt (optimized) | Gross margin |
+| Plan | Price | Included calls | Overage | Cost at ৳9/attempt (own stack, 1k calls) | Gross margin |
 |---|---:|---:|---:|---:|---:|
-| Starter | ৳2,500/mo | 150 | ৳15 | ৳600 | 76% |
-| Growth | ৳6,000/mo | 500 | ৳12 | ৳2,000 | 67% |
-| Scale | ৳12,000/mo | 1,200 | ৳10 | ৳4,800 | 60% |
-| BYO telephony | ৳4,000/mo | 500 | ৳8 | ~৳500 (orchestration only) | 88% |
+| Starter | ৳2,500/mo | 100 | ৳20 | ৳900 | 64% |
+| Growth | ৳6,000/mo | 300 | ৳17 | ৳2,700 | 55% |
+| Scale | ৳12,000/mo | 700 | ৳14 | ৳6,300 | 48% |
+| BYO telephony | ৳4,000/mo | 300 | ৳12 | ~৳1,500 (orchestration only) | 63% |
 | Setup / onboarding | ৳5,000–15,000 one-time | — | — | — | Services |
 | White-label / agency | from ৳25,000/mo | Custom | Custom | — | Enterprise |
 
-At the **managed** cost of ~৳23/attempt, Starter would lose money. That is why the pricing above assumes the hybrid/optimized stack and chat-first escalation. If you cannot get telephony cost down, raise prices or narrow the ICP.
+At 1,000 orders (1,200 attempts), a Growth plan would bill ৳6,000 + 900 × ৳17 = **৳21,300**, against ~৳10,800 cost — **49% gross margin**. At 10,000 orders with the same plan, revenue is ৳6,000 + 11,700 × ৳14 = **৳169,800**, against ~৳67,200 cost — **60% gross margin**. Scale improves margin; do not promise scale pricing before you have scale.
 
-**Pricing principle: per-call pricing fights chat-first.** Every call you avoid is revenue you lose, so the model rewards you for dialing more — the opposite of what the seller wants. Charge for the outcome or include calls in a platform fee.
+**Per-confirmed-order alternative:** ৳2,500/mo + ৳30 per confirmed order. At 700 confirmed, revenue is **৳23,500**, cost ~৳10,800, margin **54%**. It aligns with the seller's outcome and avoids charging for no-answers, but you eat the cost of unreachable numbers. Use it once your answer-rate data is stable.
 
-**Outcome-aligned alternative:** ৳3,000/mo + ৳12 per confirmed order, calls included up to a fair-use cap. At 1,000 orders with 700 confirmed, revenue is ৳11,400; at ৳3,400 cost, gross margin is 70%. The seller pays for results, and you are not punished for avoiding a call. Use per-call only if a seller insists on it.
+**Do not offer unlimited calls.** A seller with fake orders or a broken checkout will destroy your margin.
 
 ### 9.5 Worked example: 1,000 orders/month
 
-Assumptions: 1,000 COD orders; 45% need a call after chat-first; 540 call attempts; 1.05 blended minutes; optimized stack at ~$0.05/min; Growth plan ৳6,000 includes 500 calls, ৳12 overage.
+Assumptions: 1,000 COD orders; every order gets a call; 1,200 attempts; 1.05 blended minutes; Growth plan ৳6,000 includes 300 calls, ৳17 overage.
 
-| Line | All calls, managed | All calls, optimized | Chat-first, optimized |
+| Line | Managed API | Own orchestration + cloud | Own stack at 10k scale |
 |---|---:|---:|---:|
 | Orders | 1,000 | 1,000 | 1,000 |
-| Call attempts | 1,200 | 1,200 | 540 |
-| Minutes | 1,260 | 1,260 | 567 |
-| Call cost | ৳22,700 | ৳7,560 | ৳3,400 |
-| Revenue (plan + overage) | ৳14,400 | ৳14,400 | ৳6,480 |
-| Gross profit | **–৳8,300** | ৳6,840 | ৳3,080 |
-| Gross margin | negative | 47.5% | 47.5% |
+| Call attempts | 1,200 | 1,200 | 1,200 |
+| Minutes | 1,260 | 1,260 | 1,260 |
+| Call cost | ৳22,700 | ৳10,800 | ৳6,700 |
+| Revenue (plan + overage) | ৳21,300 | ৳21,300 | ৳21,300 |
+| Gross profit | **–৳1,400** | ৳10,500 | ৳14,600 |
+| Gross margin | negative | 49% | 69% |
 
-The chat-first column has lower revenue — and lower absolute gross profit in this per-call model — because fewer calls are billed, even though the seller pays less than half and the buyer gets a faster answer. That is the hidden problem with per-call pricing: it rewards you for making calls, not for avoiding them. The outcome-aligned model in §9.4 fixes this; the platform fee is what decouples revenue from call volume.
+The “own stack at 10k scale” column assumes you have already amortized the GPU and Vapi fee across 10,000 calls. At 1,000 calls, the realistic path is own orchestration + cloud models.
 
-**Seller value (same assumptions as before):**
+**Seller value (same assumptions):**
 
 | Line | Value |
 |---|---:|
@@ -1077,14 +1262,14 @@ The chat-first column has lower revenue — and lower absolute gross profit in t
 | Prepaid conversion: 5% × 1,000 × ৳1,500 × 25% margin | ৳18,750 |
 | Half a caller's salary avoided | ৳10,000 |
 | **Total value** | **~৳43,150** |
-| Our price (Growth) | ৳6,480 |
-| **Seller ROI** | **~6.7×** |
+| Our price (Growth) | ৳21,300 |
+| **Seller ROI** | **~2×** |
 
-The ROI is much better when the seller uses chat-first, because the price drops. Do not use the managed-stack cost in a customer-facing ROI calculator.
+The ROI is positive but not enormous. That is why you target sellers with AOV > ৳1,500, 1,000+ orders/month, and a real RTO problem — and why you must get the stack cost down as you scale.
 
-### 9.6 The uncomfortable truth about Bangladeshi labor
+### 9.6 The uncomfortable truth about local labor
 
-A human caller in Dhaka costs roughly ৳18,000–25,000/month and can make 150–250 calls/day. That is **৳3–5 per call**. An AI call at ৳7–25 is more expensive per call.
+A human caller in Dhaka costs roughly ৳18,000–25,000/month and can make 150–250 calls/day. That is **৳3–5 per call**. An AI call at ৳8–20 is more expensive per call.
 
 So the AI cannot win on **cost per call**. It wins on:
 
@@ -1096,7 +1281,7 @@ So the AI cannot win on **cost per call**. It wins on:
 - **address repair and upsell** that a bored caller skips,
 - **integration** with orders, couriers, and analytics.
 
-Position accordingly. If you sell "cheaper calls," you will lose to a ৳15,000/month agent.
+Position accordingly. If you sell “cheaper calls,” you will lose to a ৳15,000/month agent.
 
 ### 9.7 Telephony and caller ID
 
@@ -1104,11 +1289,11 @@ This is an operational risk, not just a line item.
 
 - **Bangladesh:** Twilio lists BD outbound at **$0.060/min**; Plivo at **$0.046/min**. Plivo does not support BD inbound numbers. A local BTRC-licensed SIP trunk/CLI is usually cheaper and gets better answer rates.
 - **Global:** Twilio/Telnyx/Plivo local outbound in the US is ~$0.014/min; other markets vary widely. Use a local number per market.
-- **Caller ID matters.** A customer who sees a foreign number may not pick up. Test answer rate by CLI type before promising results.
+- **Caller ID matters.** A buyer who sees a foreign number may not pick up. Test answer rate by CLI type before promising results.
 - **Regulation varies.** Get local advice on unsolicited calling, recording consent, and data protection in each market.
 - **Keep two carriers per market** so a single outage or price change does not stop the business.
 
-**Do not sign a seller contract promising "95% answer rate" before you have tested local CLI.**
+**Do not sign a seller contract promising “95% answer rate” before you have tested local CLI.**
 
 ### 9.8 What to charge for beyond the plan
 
@@ -1170,7 +1355,7 @@ Start simple:
 
 **Do not offer unlimited calls.** Voice costs are real; unlimited plans attract the worst usage and destroy margin. The full margin table is in §9.4.
 
-**Also offer an outcome-aligned plan:** ৳3,000/mo + ৳12 per confirmed order, calls included up to a fair-use cap. It aligns with chat-first, avoids charging sellers for no-answers, and is easier to defend in a sales conversation.
+**Also offer an outcome-aligned plan:** ৳2,500/mo + ৳30 per confirmed order. It aligns with the seller's outcome and avoids charging for no-answers, but you carry the cost of unreachable numbers. Use it once your answer-rate data is stable.
 
 ### 10.4 Channels and partnerships
 
@@ -1227,8 +1412,9 @@ Start simple:
 - `tenant_languages`, `agent_configs`, `script_versions`.
 - CSV import + REST API + idempotency.
 - Mock voice provider + simulator.
-- Vapi/Retell adapter + Bangla and English packs.
-- Confirmation modes: `chat`, `call`, `chat_then_call`.
+- `services/voice-engine` skeleton + `MockVoiceProvider`; Bangla and English packs.
+- Integration hub core: outbox, event log, generic webhook connector.
+- Confirmation modes: `call` (default), `chat_then_call`, `chat`.
 - Retry/scheduling/calling hours/DNC/budget caps.
 - Dashboard: order list, call detail, transcript, recording, outcome.
 - Test-call button + seller preview.
@@ -1237,14 +1423,16 @@ Start simple:
 ### Phase 2 — Pilot + cost optimization (weeks 4–6)
 
 - 3–5 sellers; 1,000+ calls.
-- Chat-first escalation; measure how many calls it removes.
+- Own-orchestration voice engine: Pipecat/LiveKit service + local SIP trial + cloud STT/TTS/LLM.
+- Measure cost per attempt on both the managed and owned stacks.
 - A/B control group; RTO measurement.
 - WooCommerce plugin.
 - SMS pre-notice + missed-call follow-up.
 - Billing/usage metering (manual invoices okay).
 - Local SIP trial in parallel with managed telephony.
+- Google Sheets + WooCommerce connectors.
 - Script iteration from real calls.
-- **Exit criteria:** 3 sellers willing to pay; confirmation rate > 65%; cost per attempt < ৳12; chat-first removes > 30% of calls.
+- **Exit criteria:** 3 sellers willing to pay; confirmation rate > 65%; cost per attempt < ৳12 on the owned stack; no quality regression vs. the managed stack.
 
 ### Phase 3 — Facebook (weeks 7–10; review starts week 2)
 
@@ -1294,11 +1482,11 @@ A solo founder can do Phase 0–1 with a voice vendor, but **native-language QA 
 | Stage | Metric | Target |
 |---|---|---:|
 | Order ingested | Orders/day | — |
-| Chat confirmation | `confirmed_via_chat` / orders | Track; target 40–60% where chat is enabled |
-| Call attempted | Attempt rate | > 98% of escalated orders |
+| Call attempted | Attempt rate | > 98% of orders (every order by default) |
+| Pre-call notice sent | Notice delivery rate | > 90% where a channel is open |
 | Answered | Answer rate | > 55% |
 | Meaningful conversation | > 20 seconds | > 80% of answers |
-| Confirmed | Confirmation rate (chat + call) | > 65% |
+| Confirmed | Confirmation rate | > 65% |
 | Address repaired | Change rate | 10–20% |
 | Delivered | Delivery rate | Track vs control |
 | Returned | RTO rate | Down 5–15 points |
@@ -1312,8 +1500,8 @@ A solo founder can do Phase 0–1 with a voice vendor, but **native-language QA 
 - Complaint rate: < 1%.
 - Average call duration: 60–120s; 95th percentile < 3 minutes.
 - Technical failure rate: < 2%.
-- Cost per attempt and cost per confirmed order: tracked daily, per seller and per language.
-- Chat-first call avoidance: > 30% of orders in the first month.
+- Cost per attempt and cost per confirmed order: tracked daily, per seller, per language, and per stack.
+- Connector delivery success rate: > 99%; dead-letter rate < 0.5%.
 
 ### 12.4 Business
 
@@ -1347,9 +1535,12 @@ A solo founder can do Phase 0–1 with a voice vendor, but **native-language QA 
 | Language-pack sprawl / half-supported languages | Medium | High | Launch only with QA; status page per language; deprecate weak packs |
 | Low answer rates / foreign CLI | High | High | Local SIP/CLI; pre-call notice; timing; retries; A/B test |
 | Telephony regulation / consent | Medium | High | Licensed local partner; consent records; DNC; local counsel |
-| Unit economics worse than planned | Medium | High | Chat-first; local stack; short calls; higher-AOV ICP; per-confirmed pricing |
+| Unit economics worse than planned | Medium | High | Own orchestration; local SIP; short calls; higher-AOV ICP; per-confirmed pricing |
 | Telephony price/route changes | Medium | Medium | Two carriers per market; cost alerts; pass-through/BYO option |
 | BYO support burden | Medium | Medium | Self-serve docs; health checks; paid onboarding; limit BYO to Growth+ |
+| Self-hosted voice engine ops (latency, GPU, model drift) | Medium | High | Keep cloud fallback per layer; canary + golden set; on-call runbook; start with cloud models |
+| Connector breakage (courier/CRM API changes) | High | Medium | Health checks; circuit breaker; dead-letter + replay; versioned mappings; per-connector tests |
+| Integration hub scope creep | High | Medium | Generic webhook + 3 connectors first; everything else via API/webhook; no connector marketplace in v1 |
 | Seller trust in AI | Medium | Medium | Pilot; recordings; transparency; money-back guarantee |
 | Competition from call centers/IVR | High | Medium | Speed, data, local-language quality, FB-native intake, integrations |
 | Data privacy incident | Low | High | Encryption; retention; access control; deletion; incident plan |
@@ -1373,7 +1564,7 @@ These are the decisions that change the plan. My recommendation is in bold.
 
 ### 14.1 Which market first?
 
-- **A. Bangladesh Facebook/COD sellers (recommended beachhead).** You have distribution and language advantage; the pain is acute; the unit economics work with chat-first + local SIP.
+- **A. Bangladesh Facebook/COD sellers (recommended beachhead).** You have distribution and language advantage; the pain is acute; the unit economics work with own orchestration + local SIP.
 - B. Gulf/Southeast Asia South Asian diaspora sellers. Higher AOV and higher calling costs; harder distribution, but the same language packs.
 - C. Global English e-commerce (Shopify/Woo). Higher prices, easier telephony, but you compete with many post-purchase tools and lose the local-language edge.
 - D. B2B distributor/dealer order confirmation. Larger order values, fewer calls, different consent and integration model.
@@ -1382,11 +1573,11 @@ These are the decisions that change the plan. My recommendation is in bold.
 
 ### 14.2 What should the default confirmation mode be?
 
-- **A. `chat_then_call` (recommended).** Confirm in Messenger first; call only non-responders, incomplete addresses, high-value orders, or when the seller forces a call. Cheapest and fastest.
+- **A. `call` (recommended).** Every order gets a call. This is the product, and it is what the seller is buying. Control cost with the stack, not with skipped calls.
 - B. `call` — every order gets a call. Strongest verification, highest COGS, best for high-AOV or high-fraud categories.
 - C. `chat` — no calls. Cheapest, but it is not the product you described.
 
-**Default to `chat_then_call`; let the seller choose `call` per category or order value.**
+**Default to `call`; offer `chat_then_call` as an option for sellers who want it. Never silently skip a call to save money.**
 
 ### 14.3 Build or buy the voice stack?
 
@@ -1406,7 +1597,7 @@ These are the decisions that change the plan. My recommendation is in bold.
 ### 14.5 Pricing model?
 
 - **Pilot:** free 100 calls.
-- **Paid:** platform fee + per-confirmed-order (preferred) or platform fee + included calls + overage (see §9.4).
+- **Paid:** platform fee + included calls + overage, or platform fee + per-confirmed order (see §9.4).
 - **Add:** setup/onboarding fee, extra language packs, dedicated numbers, white-label.
 - **Later:** pure outcome-share (% of RTO saved) only when attribution is reliable.
 - Avoid unlimited plans.
@@ -1436,7 +1627,7 @@ These are the decisions that change the plan. My recommendation is in bold.
 
 ## 15. What to build first in this repo
 
-If we start coding now, this is the order I would use. Each step is shippable and demoable.
+The repo is currently empty, so the build order matters more than usual. The goal is a working **calling product plus an integration layer**, not a demo.
 
 ### Step 1 — Foundation + language config (3–4 days)
 
@@ -1455,7 +1646,18 @@ If we start coding now, this is the order I would use. Each step is shippable an
 - Consent capture fields + `buyer_locale`.
 - **Demo:** upload 20 orders, see them in the dashboard.
 
-### Step 3 — Mock call engine (3–4 days)
+### Step 3 — Integration hub core (4–6 days) — build this before the voice engine
+
+- `connections`, `events`, `subscriptions`, `deliveries`, `webhook_endpoints`, `api_keys`.
+- Transactional outbox + BullMQ worker.
+- Generic outbound webhook connector with HMAC signing and retries.
+- Event log UI with replay.
+- Inbound API + signature handling for sources.
+- **Demo:** `order.created` fires a signed webhook to a test endpoint, retries on failure, and appears in the delivery log.
+
+**Why before voice:** every other piece — Messenger, website, couriers, CRM — plugs into this. If you build calls first and integrations later, you will rewrite the data flow.
+
+### Step 4 — Mock call engine (3–4 days)
 
 - `MockVoiceProvider` + a browser "call simulator."
 - Script/state machine with slots, driven by a language pack.
@@ -1463,50 +1665,59 @@ If we start coding now, this is the order I would use. Each step is shippable an
 - Call detail page: transcript, outcome, changes.
 - **Demo:** simulate a Bangla and an English confirmation call without spending on telephony.
 
-### Step 4 — Real voice (3–5 days)
+### Step 5 — Own voice engine (2–3 weeks)
 
-- Vapi/Retell adapter.
-- Bangla + English language packs (prompt, voice, slots, guardrails).
-- Test-call button + seller preview.
-- Webhook for call status/transcript.
-- Recording playback.
-- **Demo:** call your own phone from the dashboard in either language.
+- `voice-engine` service: Pipecat (or LiveKit Agents) + call state machine.
+- Local SIP connector (first carrier) + Twilio fallback.
+- Cloud STT/TTS/LLM adapters with per-language fallback.
+- Barge-in, VAD, voicemail detection, DTMF, transfer.
+- Call webhooks: started, transcript chunk, ended, outcome.
+- **Demo:** call your own phone from the dashboard in either language, on your own pipeline.
 
-### Step 5 — Rules, cost guard, reliability (4–5 days)
+### Step 6 — Rules, cost guard, reliability (4–5 days)
 
 - Call window, retries, DNC, max attempts.
-- `chat_then_call` mode; chat confirmation card.
+- `chat_then_call` optional mode.
 - Budget caps, max duration, cost alerts.
 - Queue + worker + idempotency.
 - SMS pre-notice (local aggregator or Twilio).
 - Failure handling and alerts.
 
-### Step 6 — Meta foundation (3–5 days, run in parallel)
+### Step 7 — Meta foundation (3–5 days, run in parallel from week 1)
 
 - Webhook verification + signature check.
 - Event log + simulator.
 - Page connect OAuth + encrypted token storage.
 - Send API wrapper + window guard.
-- **Note:** you can test with your own Page in development mode before App Review. Start this in week 1; do not wait for the voice engine to be perfect.
+- **Note:** you can test with your own Page in development mode before App Review.
 
-### Step 7 — Messenger workflow (5–7 days, after App Review or with dev-mode Page)
+### Step 8 — Messenger workflow (5–7 days, after App Review or with dev-mode Page)
 
 - Receive messages.
 - Detect buyer language; reply in the seller's enabled language.
 - Extract order with an LLM + schema.
-- Create order + confirmation card.
-- Escalate to call when needed.
+- Create order + pre-call notice.
+- Trigger the call.
 - Human handoff.
 
-### Step 8 — Pilot hardening (1–2 weeks)
+### Step 9 — Connectors + pilot hardening (1–2 weeks)
 
+- Google Sheets and WooCommerce connectors.
+- One courier connector (Pathao/Steadfast/RedX/Paperfly).
+- Slack/email alerts.
 - Usage metering + invoices + prepaid credits.
-- Analytics: chat vs call, answer/confirmation/RTO, cost per confirmed order.
-- Export + webhook.
+- Analytics: answer/confirmation/RTO, cost per attempt, connector health.
 - Audit logs + retention job.
 - Onboarding checklist + language QA sign-off.
 
-**Do not build in v1:** inbound support, 10 language packs, Shopify App Store listing, mobile app, custom LLM training, full CRM, live agent coaching.
+**Do not build in v1:** inbound support, 10 language packs, Shopify App Store listing, mobile app, custom LLM training, full CRM, live agent coaching, Kafka, a marketplace of 50 connectors.
+
+**Two apps, one repo (or two services):**
+
+- `apps/web` — dashboard, API, auth, billing.
+- `services/voice-engine` — the calling app: SIP/media, orchestration, model adapters, call state machine.
+
+They communicate via the event bus and a small internal API. This keeps the calling work isolated, lets you scale or restart it independently, and makes it swappable if you change providers.
 
 ---
 
@@ -1683,7 +1894,7 @@ Content-Type: application/json
   "external_id": "WEB-8821",
   "source": "website",
   "locale": "bn-BD",
-  "confirmation_mode": "chat_then_call",
+  "confirmation_mode": "call",
   "customer": {
     "name": "Rahim Uddin",
     "phone": "+8801712345678",
@@ -1799,7 +2010,7 @@ X-Signature: sha256=...
 
 - Order API + CSV + dashboard.
 - Mock call simulator with two language packs.
-- Vapi/Retell integration.
+- Voice engine skeleton + cloud model adapters.
 - Call 50 staff/friends + 50 friendly seller orders.
 - Measure answer rate, slot accuracy, duration, failures, and cost per attempt.
 
@@ -1808,13 +2019,13 @@ X-Signature: sha256=...
 ### Week 3 — Pilot with 2 sellers
 
 - 50/50 split.
-- `chat_then_call` enabled for half the orders; measure how many calls it removes.
+- Compare the managed stack and the owned voice engine on 50/50 of the calls; measure cost, latency, and confirmation rate.
 - Daily call review.
 - Fix script/prompt/data issues.
 - SMS pre-notice.
 - Compare confirmation, cancellation, and RTO signals.
 
-**Deliverable:** 300–500 calls, 2 seller testimonials or rejections, and a chat-vs-call cost comparison.
+**Deliverable:** 300–500 calls, 2 seller testimonials or rejections, and a managed-vs-owned cost comparison.
 
 ### Week 4 — Decide
 
@@ -1824,7 +2035,7 @@ Go/no-go questions:
 2. Is the answer rate > 50% with the chosen CLI?
 3. Is the confirmation rate > 65% in each launch language?
 4. Is the cost per attempt < ৳12 (or < ৳25 with the managed stack)?
-5. Did chat-first remove > 30% of calls without hurting confirmation?
+5. Is the owned voice engine within 1 point of the managed stack on confirmation rate, and at least 40% cheaper per attempt?
 6. Did RTO improve directionally vs control?
 7. Is Meta review progressing?
 
@@ -1890,11 +2101,11 @@ qa:
 - **Model:** B2B SaaS sold to sellers; buyers are their customers; white-label calls.
 - **Language:** per-seller setting. Bangla + English first; new markets are language packs + local telephony, not rewrites.
 - **Facebook reality:** no outbound calling API; Messenger is intake + in-window chat; phone number must be collected; App Review is the long pole.
-- **Build order:** voice engine + language config + website/CSV → Messenger → comments/Lead Ads → scale.
-- **Moat:** language-pack quality + FB-native order extraction + courier/outcome data + local support.
-- **Business model:** platform fee + per-confirmed order (preferred) or platform + calls; 60%+ gross margin; BYO telephony option.
-- **Cost strategy:** chat-first escalation + local SIP + short calls + small models; managed stack only for the pilot.
-- **Biggest risk:** unit economics vs. cheap human callers, and per-language quality. Both are engineering problems, not marketing problems.
+- **Build order:** foundation + language config → integration hub → mock calls → own voice engine → Messenger → connectors.
+- **Moat:** language-pack quality + FB-native order extraction + courier/outcome data + the integration layer sellers build their operations on.
+- **Business model:** platform fee + included calls + overage, or platform fee + per-confirmed order; 60%+ gross margin; BYO telephony option.
+- **Cost strategy:** own the orchestration layer + local SIP + short calls + small models; self-host at the volume gate.
+- **Biggest risk:** unit economics vs. cheap human callers, per-language quality, and voice-engine ops. All engineering problems, not marketing problems.
 - **Proof:** 50/50 pilot, measured RTO, 3 paying sellers, cost per attempt under target before scaling.
 
 ---
