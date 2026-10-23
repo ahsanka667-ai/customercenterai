@@ -1,8 +1,15 @@
 # CustomerCenter AI — Product & Go-to-Market Plan
 
-**AI order confirmation for Facebook-first and website sellers**
+**AI order confirmation for Facebook-first B2B sellers — in the seller's language, under the seller's brand**
 
-Version 0.1 · 23 October 2026 · Working draft
+Version 0.2 · 23 October 2026 · Working draft
+
+> **What changed in v0.2 (after your feedback)**
+> - The product is **B2B SaaS sold to sellers**; the people called are the seller's buyers.
+> - **Language is a per-seller setting**, not a Bangla-only product. Bangla + English are the first packs; the architecture supports any locale.
+> - **Messenger is the first Facebook surface**, with comments and Lead Ads after it.
+> - The stack is designed for **low COGS**: chat-first escalation, local SIP, small models, and a managed-to-self-hosted migration path.
+> - Pricing is designed to keep **60%+ gross margin** on the starter plan, not just to win logos.
 
 ---
 
@@ -20,27 +27,34 @@ Build the confirmation engine **once**. Treat the website and Facebook as **adap
 
 **The sequence I recommend:**
 
-> Build the voice engine + website/CSV intake first (2–3 weeks). Start Meta Business Verification and App Review in week 1, in parallel, because approval takes weeks. Add Messenger, comments, and Lead Ads once the voice engine is proven with real merchants.
+> Build the voice engine + website/CSV intake first (2–3 weeks). Start Meta Business Verification and App Review in week 1, in parallel, because approval takes weeks. Add Messenger, comments, and Lead Ads once the voice engine is proven with real sellers.
 
-**Do not build a generic "AI call center."** Build one workflow: **COD order confirmation in Bangla/English, within 5 minutes of the order, with address repair and a clean outcome for the merchant.** That is the wedge.
+**This is not a pivot away from Facebook.** Messenger is the product priority; the website/CSV adapter is the test bench you can ship while Meta reviews your app. The moment App Review clears, Messenger becomes the front door.
 
-> **Assumption:** "product purchases" means consumer e-commerce orders, mostly cash-on-delivery (COD), from Facebook/Instagram sellers and website stores in Bangladesh. If you mean B2B distributor purchase orders, the same engine applies but the script, consent model, and integrations change — see §14.
+**Do not build a generic "AI call center."** Build one workflow: **COD order confirmation in the seller's language, within 5 minutes of the order, with address repair and a clean outcome for the seller.** That is the wedge.
+
+Because this is **B2B SaaS**, the seller is your customer. The seller configures the language, voice, brand name, script, call hours, retry rules, and confirmation mode. The buyer experiences the **seller's brand**, not yours.
+
+> **Assumption:** "product purchases" means consumer e-commerce orders, mostly cash-on-delivery (COD), from Facebook/Instagram sellers and website stores. The first validation market is Bangladesh because of your distribution and language advantage, but the product is built to be **market- and language-agnostic**. If you mean B2B distributor purchase orders, the same engine applies but the script, consent model, and integrations change — see §14.
 
 ### Plan at a glance
 
 | Decision | Recommendation |
 |---|---|
+| **Product model** | B2B SaaS sold to sellers; white-label calls to their buyers |
 | **Beachhead market** | Bangladesh Facebook/Instagram COD sellers, 300–3,000 orders/month |
+| **Expansion** | Same product, new **language packs** and local telephony — not a rebuild |
 | **Wedge** | AI voice confirmation of COD orders within 5 minutes |
 | **Core output** | Structured outcome: confirmed / cancelled / callback / wrong number / address fixed |
+| **Language** | Seller-configured default + fallback; Bangla and English first |
+| **Confirmation mode** | Chat → call escalation (configurable per seller) |
 | **Channel strategy** | Voice out; Facebook is intake + in-window chat |
-| **Build order** | Voice engine + website/CSV → pilot → Messenger/comments/Lead Ads |
+| **Build order** | Voice engine + website/CSV → Messenger → comments → Lead Ads |
 | **Voice stack (first 1,000 calls)** | Vapi or Retell + Twilio/Plivo; local SIP later |
-| **Facebook priority** | Messenger order extraction → Click-to-Messenger ads → comments → Lead Ads |
-| **Pricing (hypothesis)** | ৳2,500/mo + ৳12–18/call; per-confirmed-order later |
+| **Pricing (hypothesis)** | ৳2,500–3,000/mo + per confirmed order or usage; 60%+ gross margin on Starter |
 | **Time to pilot** | 3 weeks |
 | **Time to Facebook live** | 8–12 weeks, mostly App Review |
-| **Biggest risk** | Unit economics vs. cheap human callers; local CLI and short calls are mandatory |
+| **Biggest risk** | Unit economics vs. cheap human callers; local CLI, chat-first escalation, and short calls are mandatory |
 
 ### Glossary
 
@@ -55,6 +69,11 @@ Build the confirmation engine **once**. Treat the website and Facebook as **adap
 - **NDR** — non-delivery report from a courier.
 - **AOV** — average order value.
 - **3PL** — third-party logistics provider.
+- **SIP** — Session Initiation Protocol; the standard way to connect calls to a carrier.
+- **PSTN** — the public switched telephone network; normal phone lines.
+- **AMD** — answering machine detection.
+- **BYO** — bring your own (telephony, LLM, or TTS keys).
+- **Language pack** — the script, prompts, voice settings, and QA data for one locale.
 
 ---
 
@@ -76,10 +95,11 @@ Build the confirmation engine **once**. Treat the website and Facebook as **adap
 14. [Open decisions](#14-open-decisions)
 15. [What to build first in this repo](#15-what-to-build-first-in-this-repo)
 16. [Sources](#16-sources)
-17. [Appendix A — Bangla call script](#appendix-a--bangla-call-script)
+17. [Appendix A — Bangla call script (first language pack)](#appendix-a--bangla-call-script-first-language-pack)
 18. [Appendix B — Facebook App Review checklist](#appendix-b--facebook-app-review-checklist)
 19. [Appendix C — API payloads](#appendix-c--api-payloads)
 20. [Appendix D — 30-day validation plan](#appendix-d--30-day-validation-plan)
+21. [Appendix E — Language pack schema](#appendix-e--language-pack-schema)
 
 ---
 
@@ -87,7 +107,7 @@ Build the confirmation engine **once**. Treat the website and Facebook as **adap
 
 ### 1.1 One sentence
 
-> **CustomerCenter AI calls every new cash-on-delivery order within minutes, confirms the product, price, and address in natural Bangla, and tells the merchant what to ship — before the courier is booked.**
+> **CustomerCenter AI calls every new cash-on-delivery order within minutes, confirms the product, price, and address in the seller's chosen language and voice, and tells the seller what to ship — before the courier is booked.**
 
 ### 1.2 The job to be done
 
@@ -103,7 +123,7 @@ Today the seller either calls manually, sends a WhatsApp/Messenger message, or s
 
 Our job is to turn a messy order into a **confirmed, dispatch-ready order** with a structured outcome.
 
-### 1.3 What the merchant actually buys
+### 1.3 What the seller actually buys
 
 | Value | How we deliver it |
 |---|---|
@@ -115,8 +135,10 @@ Our job is to turn a messy order into a **confirmed, dispatch-ready order** with
 | Labor savings | Replace/assist manual confirmation callers |
 | Visibility | Recording, transcript, outcome, reason codes, dashboards |
 | Consistency | Same script, same questions, every order, 24/7 |
+| Brand control | Seller's name, voice, language, and script — not a generic bot |
+| Low overhead | No hiring, no training, no extra phone lines |
 
-The merchant is not buying "AI" or "minutes." They are buying **fewer lost parcels and a faster, cleaner dispatch process**.
+The seller is not buying "AI" or "minutes." They are buying **fewer lost parcels and a faster, cleaner dispatch process**.
 
 ### 1.4 What we are not (v1)
 
@@ -165,10 +187,55 @@ Meta also gives you intent signals a website-only tool cannot see:
 
 ### 2.3 Why now
 
-1. **Bangla voice AI is finally usable.** ElevenLabs supports Bengali on v3/v4, Azure has `bn-BD` voices (Nabanita, Pradeep), Google has `bn-BD` STT (Chirp 3, preview) and Gemini-TTS `bn-BD`.
-2. **Telephony APIs cover Bangladesh outbound.** Twilio lists ~$0.060/min, Plivo ~$0.046/min. (Local SIP/CLI is still the hard part — see §9.4.)
+1. **Local-language voice AI is finally usable.** For the beachhead: ElevenLabs supports Bengali on v3/v4, Azure has `bn-BD` voices (Nabanita, Pradeep), Google has `bn-BD` STT (Chirp 3, preview) and Gemini-TTS `bn-BD`. Other launch languages have similar coverage; validate per language.
+2. **Telephony APIs cover most markets, including Bangladesh outbound.** Twilio lists BD at ~$0.060/min, Plivo at ~$0.046/min. (Local SIP/CLI is still the hard part — see §9.7.)
 3. **Meta tightened the rules.** Message tags were deprecated in April 2026; generic broadcast tools are being forced to become compliant workflow tools. That is an opening for a product that respects the windows and still gets the job done.
 4. **Sellers are under margin pressure.** RTO is a board-level metric for e-commerce brands, and Facebook sellers feel it every week.
+
+### 2.4 Why language must be a seller setting
+
+If you hard-code Bangla:
+
+- you can only sell to Bangla-speaking sellers;
+- a Bangladeshi seller with English-speaking buyers cannot use it;
+- a seller in the UAE with Arabic/Hindi/Urdu buyers is out of reach;
+- every new market becomes a fork of the product, not a configuration.
+
+If language is per-seller:
+
+- one codebase, one prompt pipeline, many markets;
+- the seller chooses default language, fallback, voice, and approved script variations;
+- expansion is a **language pack + local telephony + QA**, not a rewrite;
+- your moat becomes **language-pack quality and local operations**, not "we speak Bangla."
+
+The seller must be able to configure:
+
+- default language and fallback language,
+- voice (gender, accent, speed, style),
+- brand name, approved greeting variations, and transfer number (the AI disclosure is locked),
+- call hours, retries, and confirmation mode,
+- a preview of exactly what the buyer will hear.
+
+**Do not sell a language until you have a QA set:** 100+ real calls, slot accuracy > 90%, and a native reviewer. A language pack without QA is a liability.
+
+### 2.5 Why cost is a product feature
+
+Your COGS are dominated by telephony and voice. If you use a managed voice platform plus international wholesale on every call:
+
+- all-in cost is roughly **$0.15/min**;
+- a 1.3-minute call costs ~**$0.20 (~৳24)**;
+- at ৳15/call, you lose money;
+- at ৳25/call, you are priced out of small sellers.
+
+To sell profitably, cost has to be engineered:
+
+- **chat-first** — confirm in Messenger for near-zero marginal cost; call only non-responders and high-value orders;
+- **local SIP** — typically 3–10× cheaper than international wholesale;
+- **short, structured calls** — 45–90 seconds, not open-ended chat;
+- **small models** — cheap LLM for dialogue, batch analysis after the call;
+- **BYO telephony/keys** — the seller pays the carrier, you sell software.
+
+This is covered in detail in §9.
 
 ---
 
@@ -183,31 +250,48 @@ Meta also gives you intent signals a website-only tool cannot see:
 - orders coming through Messenger, comments, and phone,
 - shipping with Pathao, Steadfast, RedX, or Paperfly,
 - currently confirming by phone/WhatsApp or not at all,
-- a painful RTO number (25%+).
+- a painful RTO number (25%+),
+- a brand and a language they care about (Bangla, English, or both).
+
+**Who buys (the B2B buyer):**
+
+- Founder/owner or head of operations — cares about RTO, cash flow, and headcount.
+- E-commerce manager — cares about dispatch speed, address quality, and courier performance.
+- Customer support lead — cares about script consistency, recordings, and escalations.
+- Agency account manager — cares about white-label reporting across client Pages.
+
+**What they need to configure:**
+
+- default language + fallback, voice, brand name, greeting, disclosure, transfer number,
+- confirmation mode (chat only / call only / chat-then-call),
+- call hours, retries, DNC rules, budget caps,
+- catalog, courier, and order-source integrations.
 
 **Secondary:**
 
 - Website/WooCommerce/Shopify brands with COD and a real order API.
 - Agencies managing 10–50 Facebook Pages (white-label opportunity).
-- Couriers/3PLs who want to offer confirmation as a value-added service to their merchants.
+- Couriers/3PLs who want to offer confirmation as a value-added service to their sellers.
+- Sellers in the Gulf, Southeast Asia, and South Asia with South Asian diaspora buyers — same engine, new language pack and local number.
 
 **Not first:**
 
 - Enterprise brands with an existing 50-seat call center (long sales cycle, procurement).
 - Pure prepaid stores (low RTO, less pain).
 - Very low-AOV impulse sellers (call cost is too high relative to margin).
+- Sellers who only want a generic chatbot (we are a confirmation workflow, not a chat toy).
 
 ### 3.2 The wedge
 
-> **COD order confirmation for Facebook-first sellers.**
+> **COD order confirmation for Facebook-first sellers — in the seller's language, under the seller's brand.**
 
-One workflow. One outcome. One dashboard. Expand later into delivery scheduling, NDR recovery, prepaid conversion, upsell, and inbound support.
+One workflow. One outcome. One dashboard. The seller configures language and voice; the buyer hears the seller's brand. Expand later into delivery scheduling, NDR recovery, prepaid conversion, upsell, and inbound support.
 
 ### 3.3 Positioning
 
-- **For sellers:** "Confirm every COD order in 5 minutes — in Bangla — before you ship."
+- **For sellers:** "Confirm every COD order in 5 minutes — in your language, under your brand — before you ship."
 - **For agencies:** "White-label AI confirmation for all your client Pages."
-- **For couriers:** "Cut RTO for your merchants without adding call-center headcount."
+- **For couriers:** "Cut RTO for your sellers without adding call-center headcount."
 
 Avoid these phrases:
 
@@ -226,14 +310,14 @@ Avoid these phrases:
 1. Checkout or order API sends order + phone + consent to us.
 2. We call within 5 minutes.
 3. We write the outcome back via webhook.
-4. Merchant ships, holds, or cancels.
+4. Seller ships, holds, or cancels.
 
 **Why it is easy:** you control the order data, the phone number, and the consent language. There is no Meta review, no messaging window, no unstructured chat.
 
 **What is still hard (shared with Facebook):**
 
 - telephony and caller ID,
-- Bangla speech recognition,
+- speech recognition in each launch language,
 - answer rates,
 - call consent and recording disclosure,
 - cost per call.
@@ -289,7 +373,7 @@ These are not fine print. They determine what the product can promise.
 | **Lead data retention** | Lead data available for 90 days | Fetch and store only what you need; delete per policy |
 | **App Review + Business Verification** | Required for advanced access to messaging/lead permissions | Start in week 1; it is the long pole |
 
-**The single most important product decision:** **voice is the outbound channel, Facebook is the intake channel.** If you build the product the other way around — assuming you can message anyone on Messenger whenever you want — Meta will restrict the app and your merchants will lose access.
+**The single most important product decision:** **voice is the outbound channel, Facebook is the intake channel.** If you build the product the other way around — assuming you can message anyone on Messenger whenever you want — Meta will restrict the app and your sellers will lose access.
 
 ### 4.4 What the Facebook product actually looks like
 
@@ -298,7 +382,7 @@ Three surfaces, built in this order:
 1. **Inbox assistant (read + reply + extract order).**
    - Receives Messenger webhooks.
    - Discloses that it is an automated assistant at the start of the conversation (Meta recommends this; some jurisdictions require it).
-   - Answers common questions (price, delivery, stock) from the merchant's catalog (CSV/Google Sheet/WooCommerce sync in v1).
+   - Answers common questions (price, delivery, stock) from the seller's catalog (CSV/Google Sheet/WooCommerce sync in v1).
    - Collects name, phone, address, product, variant, quantity.
    - Asks permission to use the phone number for the confirmation call.
    - Creates a structured order and asks for confirmation.
@@ -317,7 +401,28 @@ Three surfaces, built in this order:
    - Calls within 5 minutes (speed-to-lead matters).
    - Writes the outcome back to the CRM/webhook.
 
-**Do not start with a full inbox replacement.** Start with order extraction + confirmation. The merchant keeps their existing inbox tool if they want; we plug into the order flow.
+**Do not start with a full inbox replacement.** Start with order extraction + confirmation. The seller keeps their existing inbox tool if they want; we plug into the order flow.
+
+### 4.5 What the seller configures
+
+The product is B2B SaaS, so configuration is part of the product, not an admin afterthought.
+
+| Setting | What the seller chooses | Default |
+|---|---|---|
+| **Default language** | Language the agent speaks first | Bangla (BD sellers) / English |
+| **Fallback language** | Used if the buyer speaks another supported language | English |
+| **Voice** | Gender, accent, speed, style; preview before saving | Female, neutral, friendly |
+| **Brand** | Display name, approved greeting variations, transfer number; AI disclosure is locked | Seller's Page name |
+| **Confirmation mode** | `chat`, `call`, or `chat_then_call` | `chat_then_call` |
+| **Call timing** | Immediate / delay / business hours | Within 5 minutes, 9am–9pm |
+| **Retries** | Number of attempts, gaps, SMS between attempts | 2 attempts, +2h, next morning |
+| **Budget cap** | Max spend per order / day / month | Plan-based |
+| **Catalog** | CSV, Google Sheet, WooCommerce, or manual | Manual |
+| **Outcome delivery** | Webhook, email, CSV, courier booking | Dashboard + webhook |
+
+**Preview is mandatory.** Before going live, the seller hears a sample call in their language and voice, with their brand name and a sample order. This is also the best sales demo.
+
+**Messenger-first means:** the Page inbox is the primary surface for order capture; the dashboard is the control room for calls, outcomes, and exceptions. Do not make the seller live in two tools.
 
 ---
 
@@ -335,13 +440,13 @@ Three surfaces, built in this order:
 - **HTTPS webhook** with a valid certificate and a fast 200 response.
 - **A test Facebook Page** with real conversations and a test lead form.
 
-**Pilot shortcut if App Review is slow:** connect the merchant's Page to an existing Messenger automation platform (ManyChat/Chatfuel) and forward new-message events to us via Zapier/Make. This is a temporary bridge for the first 1–2 pilots — not the core architecture. It adds cost, latency, and a dependency, and it may not give you raw webhook access. Use it to learn, then replace it with your own Meta app.
+**Pilot shortcut if App Review is slow:** connect the seller's Page to an existing Messenger automation platform (ManyChat/Chatfuel) and forward new-message events to us via Zapier/Make. This is a temporary bridge for the first 1–2 pilots — not the core architecture. It adds cost, latency, and a dependency, and it may not give you raw webhook access. Use it to learn, then replace it with your own Meta app.
 
 ### 5.2 Permissions to request (start minimal)
 
 | Permission | Why | When |
 |---|---|---|
-| `pages_show_list` | Let the merchant choose which Page to connect | Phase 1 |
+| `pages_show_list` | Let the seller choose which Page to connect | Phase 1 |
 | `pages_manage_metadata` | Subscribe the app to Page webhooks | Phase 1 |
 | `pages_messaging` | Read/send Messenger messages | Phase 1 |
 | `pages_read_engagement` | Read comments/Page content for comment-to-DM | Phase 1 |
@@ -354,13 +459,13 @@ Three surfaces, built in this order:
 
 ### 5.3 OAuth and Page connection
 
-1. Merchant clicks **Connect Facebook Page**.
+1. Seller clicks **Connect Facebook Page**.
 2. Facebook Login for Business (or standard Facebook Login) returns a user token with the requested scopes.
 3. Exchange for a long-lived user token, then fetch Page tokens via `GET /me/accounts`.
 4. Store the Page token **encrypted** (KMS or app-level envelope encryption) with the Page ID, scopes, and connection status.
 5. Subscribe the app to the Page:
    `POST /{page-id}/subscribed_apps` with `subscribed_fields=messages,messaging_postbacks,messaging_optins,message_reactions,feed,leadgen`.
-6. On deauthorize or token error (`code 190`), mark the connection as disconnected and ask the merchant to reconnect.
+6. On deauthorize or token error (`code 190`), mark the connection as disconnected and ask the seller to reconnect.
 
 **Never** put Page tokens in the frontend, logs, or error messages.
 
@@ -436,7 +541,7 @@ Meta reviewers are looking for a **working, end-to-end use case**, not a setting
 - Recordings: private bucket, signed URLs, 90-day default retention, delete on request.
 - Lead data: fetch within 90 days; do not retain beyond the stated purpose.
 - Honor deletion requests across orders, calls, transcripts, and recordings.
-- Publish a data processing addendum (DPA) for merchants.
+- Publish a data processing addendum (DPA) for sellers.
 - Train staff on PII access; log admin views.
 
 ---
@@ -456,7 +561,7 @@ sequenceDiagram
   S->>API: POST /v1/orders (phone + consent)
   API->>API: Validate, dedupe, schedule
   API->>V: Call within 5 minutes
-  V->>C: Bangla confirmation call
+  V->>C: Confirmation call in seller's language
   V->>API: Outcome + transcript + recording
   API->>S: Webhook: confirmed / cancelled / callback
   API->>D: Live order + call record
@@ -468,19 +573,25 @@ sequenceDiagram
 - Call length: **60–120 seconds**.
 - Outcome available in dashboard/webhook: **< 30 seconds after hangup**.
 
-### 6.2 Facebook Messenger order
+### 6.2 Facebook Messenger order (primary flow)
 
 1. Customer comments or DMs: "এই ড্রেসটার দাম কত?" / "order korte chai."
 2. Bot replies in-window (or one private reply for a comment).
-3. Bot collects: product, variant, quantity, name, phone, address.
-4. Bot reads back the summary and asks "ঠিক আছে?"
-5. Bot creates the order and sends: "ধন্যবাদ! অর্ডারটি কনফার্ম করতে ২ মিনিটের মধ্যে একটি কল আসবে।"
-6. Voice agent calls.
-7. Outcome is written back; if the window is open, send a confirmation card with buttons:
-   - ✅ Order confirmed
+3. Bot detects the buyer's language and replies in it if the seller enabled that language; otherwise uses the seller's default.
+4. **Chat confirmation first (default):** bot sends a confirmation card with product, variant, quantity, amount, and address, plus buttons:
+   - ✅ Confirm order
    - 📍 Change address
-   - ❌ Cancel order
-8. Merchant dashboard updates; optionally auto-book courier.
+   - ❌ Cancel
+5. If the buyer confirms in chat and the address is complete, **no call is needed** — this is the cheapest and fastest path. Mark `confirmed_via_chat`.
+6. If the buyer does not respond within the configured time, the address is incomplete, the order is above a value threshold, or the seller chose `call` mode, proceed:
+   - collect any missing fields (phone, address, landmark),
+   - read back the summary,
+   - send a pre-call message in the buyer's language: "ধন্যবাদ! অর্ডারটি কনফার্ম করতে ২ মিনিটের মধ্যে একটি কল আসবে।"
+7. Voice agent calls in the seller's configured language/voice.
+8. Outcome is written back; if the window is open, send a confirmation card with the final status and next steps.
+9. Seller dashboard updates; optionally auto-book courier.
+
+**Why chat-first is the default:** it is nearly free, it works inside the 24-hour/7-day window, and many buyers will confirm with one tap. The call is the **escalation** for non-responders, incomplete addresses, high-value orders, and sellers who insist on voice. This one design choice can cut your telephony COGS by 40–70%.
 
 **Why the pre-call message matters:** it raises answer rates, sets expectations, and gives the customer a chance to say "call me later" before you dial.
 
@@ -489,12 +600,12 @@ sequenceDiagram
 1. `leadgen` webhook arrives with `leadgen_id`.
 2. Fetch the lead: `GET /{leadgen_id}?access_token=...`.
 3. Validate phone:
-   - normalize to E.164 (`+8801[3-9]XXXXXXXX` for BD mobile),
+   - normalize to E.164 using the seller's country/region (BD mobile: `+8801[3-9]XXXXXXXX`),
    - check duplicates and existing orders,
    - check the tenant's DNC/suppression list,
    - optional carrier/lookup check for reachability.
 4. Call within **5 minutes**.
-5. Outcome webhook to the merchant's CRM.
+5. Outcome webhook to the seller's CRM.
 6. If no answer: SMS + retry schedule.
 
 **Speed-to-lead is the whole game.** A lead called in 5 minutes converts far better than one called next day. Make this a product promise and measure it.
@@ -505,21 +616,21 @@ sequenceDiagram
 |---|---|---|
 | 1 | Immediately | Call |
 | 2 | +2 hours | Call; if no answer, SMS with order summary |
-| 3 | Next morning (10–11am) | Call; if no answer, mark `unreachable` and notify merchant |
+| 3 | Next morning (10–11am) | Call; if no answer, mark `unreachable` and notify seller |
 | Voicemail detected | On attempt 1 | Hang up, send SMS, retry per schedule |
 | Opt-out / DNC | Immediately | Stop all calls; record consent withdrawal |
 
 **Rules:**
 
-- Call window: **9:00–21:00** local time, 7 days a week (configurable).
-- No calls during major religious holidays unless the merchant opts in.
+- Call window: **9:00–21:00** local time, 7 days a week (configurable per seller and per country).
+- No calls during major religious holidays unless the seller opts in.
 - Max 3 attempts per order.
 - Never call a number that has asked not to be called.
 - Pre-call SMS/Messenger notice where possible.
 
 ### 6.5 Human handoff
 
-Transfer to the merchant's number when:
+Transfer to the seller's number when:
 
 - the customer asks for a human,
 - the customer is angry or threatening,
@@ -555,7 +666,7 @@ dial
  → address confirmation + repair
  → delivery preference (morning / afternoon / evening)
  → objection handling (price, later, not ordered, change)
- → optional upsell / prepaid offer (merchant-flagged only)
+ → optional upsell / prepaid offer (seller-flagged only)
  → close + next steps
  → post-call analysis + outcome
 ```
@@ -566,7 +677,7 @@ dial
 - Max 3 re-prompts per question.
 - Max 2 seconds of silence before re-prompt.
 - End politely on abuse.
-- Never promise a delivery date the merchant has not configured.
+- Never promise a delivery date the seller has not configured.
 
 ### 7.3 Outcome schema
 
@@ -600,7 +711,7 @@ Every call produces a structured record. This is the product's real output.
 
 **Outcome enum:**
 
-| Outcome | Meaning | Merchant action |
+| Outcome | Meaning | Seller action |
 |---|---|---|
 | `confirmed` | Customer confirmed product, amount, address | Ship |
 | `confirmed_with_changes` | Confirmed after address/variant/qty change | Update order, ship |
@@ -611,17 +722,56 @@ Every call produces a structured record. This is the product's real output.
 | `suspected_fraud` | Inconsistent answers, known bad number | Manual review |
 | `failed` | Technical failure | Retry / escalate |
 
-### 7.4 Bangla-specific design
+### 7.4 Language is a seller setting
 
-Bangla voice is the moat and the hardest engineering problem. Treat it as a first-class product concern, not a vendor setting.
+The agent speaks through a **language pack**, not a hard-coded script. A language pack is more than a translation file:
+
+- the script and prompts (greeting, AI disclosure, slot questions, read-backs, objections, close, voicemail, SMS),
+- voice profile(s), pronunciation lexicon, and speaking speed,
+- STT model, language code, and keyword boosting for product/brand names,
+- number, date, address, and currency formatting,
+- legal disclosures and call-hour rules for that market,
+- a QA dataset and a native reviewer sign-off.
+
+**Data model:**
+
+```text
+tenant_languages  (tenant_id, locale, is_default, fallback_locale,
+                   voice_id, status, approved_at)
+agent_configs     (tenant_id, locale, persona, script_version,
+                   max_duration, transfer_number, call_hours_json)
+voice_profiles    (id, provider, provider_voice_id, locale, gender,
+                   speed, style, sample_url)
+script_versions   (id, locale, version, prompt_json, approved_by, approved_at)
+```
+
+**Buyer language resolution (in order):**
+
+1. Explicit buyer preference, if known.
+2. Language of the first message or utterance (classifier + confidence).
+3. Order locale, form locale, or browser locale.
+4. Seller's default language.
+5. English fallback.
+
+Never switch language mid-sentence. Switch at a turn boundary and confirm: "Would you like to continue in English?" / "ইংরেজিতে কথা বলবেন?"
+
+**What the seller configures:** default language, fallback, voice, brand name, approved greeting variations, call hours, and confirmation mode. The seller previews the call before going live.
+
+**Script governance:** you own the language pack. Sellers can set brand variables (name, greeting, transfer number) and choose approved tone variations; they cannot edit the legal disclosure or the core confirmation logic. This keeps QA and compliance intact while the call still sounds like their brand.
+
+**Launch languages:** Bangla (`bn-BD`) and English first. Add a language only when you have a QA set: 100+ real calls, slot accuracy > 90%, and a native reviewer. Candidate next languages, based on seller demand: Hindi, Urdu, Arabic, Indonesian, Vietnamese, Spanish, Portuguese.
+
+#### Bangla specifics (the first pack)
+
+Bangla voice is the hardest quality problem and the first proof point. Treat it as a first-class product concern, not a vendor setting.
 
 **Language behavior:**
 
 - Default to **Bangla (bn-BD)**, with natural code-switching for words like "অর্ডার", "ডেলিভারি", "কনফার্ম", "ক্যাশ অন ডেলিভারি".
-- Switch to English if the customer speaks English or asks.
+- Switch to English if the buyer speaks English or asks.
 - Do not use West Bengal idioms or overly formal literary Bangla. Use neutral, polite, conversational Dhaka Bangla.
 - Say amounts in Bangla words and repeat the number: "মোট এক হাজার চারশো পঞ্চাশ টাকা।"
-- For names and addresses, ask the customer to repeat and read it back. ASR will struggle with names; do not pretend it won't.
+- For names and addresses, ask the buyer to repeat and read it back. ASR will struggle with names; do not pretend it won't.
 
 **Voice and audio:**
 
@@ -636,7 +786,7 @@ Bangla voice is the moat and the hardest engineering problem. Treat it as a firs
 
 | Layer | Options | Notes |
 |---|---|---|
-| STT | Google Chirp 3 `bn-BD` (preview), Azure Speech, Deepgram (check Bengali), local ASR | Keyword boosting for product names; custom vocabulary |
+| STT | Google Chirp 3 `bn-BD` (preview), Azure Speech, local ASR | Keyword boosting for product names; custom vocabulary; test on 8 kHz audio |
 | LLM | GPT-4.1-mini / Gemini Flash / Claude Haiku class | Structured output; low temperature; small context |
 | TTS | ElevenLabs v4/v3 Bengali, Azure `bn-BD` Nabanita/Pradeep, Google Gemini-TTS `bn-BD` | ElevenLabs v3/v4 supports Bengali; Azure has dedicated BD voices |
 | Orchestration | Vapi, Retell, LiveKit/pipecat, Plivo Voice AI | Start managed; abstract behind an interface |
@@ -644,10 +794,12 @@ Bangla voice is the moat and the hardest engineering problem. Treat it as a firs
 
 **Do not** use a premium reasoning model for every turn. Use a small, fast model with a tight prompt and a structured output schema; reserve a bigger model for post-call analysis.
 
+**Per-language QA is not optional.** A language that sounds fluent but mishears addresses is worse than a language you don't offer.
+
 ### 7.5 Guardrails
 
 - No medical, legal, or financial advice.
-- No discounts or promises outside the merchant's configured rules.
+- No discounts or promises outside the seller's configured rules.
 - No pressure tactics, no repeated calls after opt-out.
 - No discussion of other customers' data.
 - No raw PII in logs or third-party analytics.
@@ -657,10 +809,10 @@ Bangla voice is the moat and the hardest engineering problem. Treat it as a firs
 
 ### 7.6 Testing and quality
 
-Before the first merchant pilot:
+Before the first seller pilot:
 
 - 50 scripted scenarios (confirm, cancel, address change, price objection, wrong number, abusive, silence, language switch, voicemail).
-- 200 real calls to staff/friends/merchants in Bangla.
+- 200 real calls to staff/friends/sellers in each launch language.
 - Measure:
   - answer rate,
   - slot accuracy (product, amount, address),
@@ -701,7 +853,7 @@ flowchart LR
   V --> A[Outcome Analyzer]
   A --> DB
   A --> H[Webhooks / Courier]
-  DB --> UI[Merchant Dashboard]
+  DB --> UI[Seller Dashboard]
   A --> R[(Recordings / Transcripts)]
 ```
 
@@ -716,28 +868,45 @@ flowchart LR
 | **Voice provider** | Create/end/transfer calls; webhooks | Vapi first; `MockVoiceProvider` for dev |
 | **Telephony** | PSTN connectivity, caller ID | Twilio/Plivo first; local SIP later |
 | **Meta adapter** | OAuth, webhooks, send API, window guard | Custom module |
+| **Language service** | Locale resolution, language packs, voice mapping, fallback | Postgres + versioned JSON packs |
+| **Cost guard** | Budget caps, max duration, model routing, alerts | Usage metering + kill switch |
+| **Catalog** | Product/price/stock answers in chat | CSV/Google Sheet first |
 | **Outcome analyzer** | Transcript → structured JSON | LLM with schema validation |
 | **Storage** | Recordings, exports | S3-compatible (R2/S3) |
-| **Observability** | Errors, call traces, latency | Sentry + OpenTelemetry + call logs |
+| **Observability** | Errors, call traces, latency, cost per call | Sentry + OpenTelemetry + call logs |
 | **Billing** | Plans, usage, invoices | Manual invoices first; Stripe/Paddle later + bKash/SSLCommerz |
 
 ### 8.3 Data model (core tables)
 
 ```text
-organizations        (id, name, plan, timezone, created_at)
+organizations        (id, name, plan, country, timezone, default_locale, created_at)
 users                (id, org_id, email, role, ...)
+tenant_languages     (id, org_id, locale, is_default, fallback_locale,
+                      voice_id, status, approved_at)
+agent_configs        (id, org_id, locale, persona, script_version,
+                      max_duration, transfer_number, call_hours_json,
+                      confirmation_mode, budget_cents_per_day)
+voice_profiles       (id, org_id, provider, provider_voice_id, locale,
+                      gender, speed, style, sample_url)
+script_versions      (id, org_id, locale, version, prompt_json,
+                      approved_by, approved_at)
 channel_connections  (id, org_id, provider, external_id, token_enc, status, scopes)
+phone_numbers        (id, org_id, country, e164, provider, purpose, status)
 contacts             (id, org_id, name, phone_enc, email, locale, consent_json)
 orders               (id, org_id, external_id, source, status, amount, currency,
-                      cod, address_json, items_json, consent_at, created_at)
+                      cod, address_json, items_json, buyer_locale,
+                      consent_at, created_at)
 order_items          (id, order_id, sku, name, variant, qty, unit_price)
 calls                (id, order_id, provider, provider_call_id, status,
-                      started_at, ended_at, duration_sec, recording_url,
-                      transcript_json, outcome, confidence, cost_cents)
+                      locale, started_at, ended_at, duration_sec,
+                      recording_url, transcript_json, outcome, confidence,
+                      cost_cents)
 call_events          (id, call_id, type, payload_json, created_at)
 message_threads      (id, org_id, channel, external_thread_id, psid,
-                      window_expires_at, last_user_message_at, opted_out)
-messages             (id, thread_id, direction, type, body, meta_json, sent_at)
+                      window_expires_at, last_user_message_at,
+                      buyer_locale, opted_out)
+messages             (id, thread_id, direction, type, body, locale,
+                      meta_json, sent_at)
 webhook_events       (id, org_id, source, external_id, payload_json,
                       status, attempts, last_error)
 usage_records        (id, org_id, order_id, call_id, unit, qty, cost_cents)
@@ -750,6 +919,10 @@ audit_logs           (id, org_id, user_id, action, target, meta_json, created_at
 - Phone numbers and addresses are encrypted at rest.
 - Soft-delete + hard-delete job for retention.
 - Idempotency keys on order ingest and call creation.
+- `locale` is stored on every call and message; never infer it only from the phone country.
+- `script_version` is stored on every call so you can reproduce what the buyer heard.
+- Budget caps are enforced **before dialing**, not after the invoice arrives.
+- Language packs are versioned; a change requires a new version and a QA run.
 
 ### 8.4 Voice provider abstraction
 
@@ -778,7 +951,9 @@ Implement:
 - `MockVoiceProvider` for local dev and demos,
 - `TwilioVoiceProvider` later if you build your own pipeline.
 
-**Why:** Vapi/Retell are fast to start but charge a platform fee and may not support every Bangla voice/STT combination. You will likely move to a custom pipeline at scale. The interface protects you.
+**Why:** Vapi/Retell are fast to start but charge a platform fee and may not support every language/voice/STT combination. You will likely move to a custom pipeline at scale. The interface protects you.
+
+Add `locale`, `voiceId`, and `scriptVersion` to `createCall`. The provider adapter resolves those to its own assistant/agent configuration; the rest of the system should not know whether the vendor is Vapi, Retell, or your own pipeline.
 
 ### 8.5 Multi-tenancy and security
 
@@ -790,6 +965,8 @@ Implement:
 - PII: minimize, encrypt, retention policy, deletion workflow.
 - Backups: daily Postgres snapshots; test restore quarterly.
 - Rate limits: per tenant and per provider; backoff on Meta/Twilio errors.
+- Budgets: per-order, per-day, and per-month caps; alert at 80%; suspend calls at 100%.
+- Cost anomaly detection: alert on calls over 3 minutes, repeated retries, or a sudden cost-per-call spike.
 - Compliance: privacy policy, DPA, subprocessor list, data deletion request flow.
 
 ### 8.6 Why buy the voice stack first
@@ -808,66 +985,106 @@ The first 500 calls are for learning, not for optimizing cost. Buy speed, then o
 
 > All numbers are hypotheses as of October 2026. Validate with real calls and real invoices. USD→BDT assumed at ~৳120.
 
-### 9.1 Cost per call
+### 9.1 The three cost stacks
 
-| Component | Managed stack | Local SIP stack (target) |
-|---|---:|---:|
-| Telephony (BD outbound) | $0.060/min (Twilio) or $0.046/min (Plivo) | ~$0.010/min (local trunk) |
-| Voice orchestration | $0.050/min (Vapi) | ~$0.010/min (self-hosted) |
-| STT + LLM + TTS | ~$0.040/min | ~$0.030/min |
-| **All-in per minute** | **~$0.150 (~৳18)** | **~$0.050 (~৳6)** |
-| Blended minutes per attempt (75% answered at 1.3 min + 25% no-answer at 0.3 min) | 1.05 min | 1.05 min |
-| Cost per attempt | ~$0.16 (~৳19) | ~$0.05 (~৳6) |
-| With 30% retry overhead | ~$0.21 (~৳25) | ~$0.07 (~৳8) |
+The same 1.3-minute call can cost roughly ৳5 or ৳24 depending on how you build it.
 
-**Reality check:** managed telephony + managed voice is **2–3× more expensive** than a local stack. At ৳15/call, the managed stack loses money. Either price higher, target higher-AOV merchants, or move to local SIP before scaling.
+| Component | Managed (pilot) | Hybrid (early) | Optimized (scale) |
+|---|---:|---:|---:|
+| Telephony | Twilio BD $0.060/min | Local SIP ~$0.010/min | Local SIP ~$0.008/min |
+| Voice orchestration | Vapi/Retell $0.050/min | Vapi/Retell $0.050/min | Self-hosted pipecat/LiveKit ~$0.005/min |
+| STT | $0.015/min | $0.008/min | $0.006/min |
+| LLM (dialogue) | $0.005/min | $0.003/min | $0.002/min |
+| TTS | $0.020/min | $0.012/min | $0.008/min |
+| **All-in per minute** | **~$0.150 (৳18)** | **~$0.083 (৳10)** | **~$0.029 (৳3.5)** |
+| Cost per attempt (1.05 blended min) | ~$0.16 (৳19) | ~$0.09 (৳10.5) | ~$0.03 (৳3.7) |
+| With 20% retry overhead | ~$0.19 (৳23) | ~$0.10 (৳12.5) | ~$0.04 (৳4.5) |
 
-### 9.2 Pricing options
+**The point:** at ৳12–15 per call, only the hybrid/optimized stack is profitable. The managed stack is a **learning tool**, not a business model.
 
-| Model | Example | Pros | Cons |
-|---|---|---|---|
-| **Per call** | ৳18–25 per attempted call | Simple, predictable | Merchant pays for no-answers; feels like a cost |
-| **Per confirmed order** | ৳30–40 per confirmed order | Aligns with value; easy to sell | You eat the cost of cancellations/no-answers |
-| **Platform + usage** | ৳2,500/mo + ৳12/call | Recurring revenue; covers fixed costs | Higher friction for small sellers |
-| **Outcome share** | 10–15% of saved RTO | Strong alignment | Hard to measure; disputed attribution |
+### 9.2 The cost-cutting playbook (ranked by impact)
 
-**Recommended for the pilot:** platform fee + per-call usage, with a free 100-call trial. Move to per-confirmed-order once you have proof and local telephony.
+1. **Chat-first, call escalation.** Confirm in Messenger inside the free window; call only non-responders, incomplete addresses, and high-value orders. This cuts call volume by **40–70%** and is the single biggest lever.
+2. **Local SIP / local CLI.** International wholesale is 3–10× more expensive and gets lower answer rates. Partner with a licensed local carrier per market.
+3. **BYO telephony.** Let the seller connect their own Twilio/Plivo/SIP account. You charge software only; telephony COGS goes to zero. Offer it as a "Pro" plan for larger sellers.
+4. **Short, structured calls.** 45–90 seconds, max 2 re-prompts, DTMF fallback. Do not let the agent chat about the weather.
+5. **Small models for dialogue.** Use a Flash-Lite/nano/8B-class model for the live conversation; reserve a larger model for post-call extraction, run in batch.
+6. **TTS caching.** Pre-render the greeting, disclosure, close, and DTMF prompts as audio; synthesize only the variable slots. Use standard voices by default; custom voice is an add-on.
+7. **AMD / voicemail detection.** Hang up on voicemail, send SMS, retry. Never pay 60 seconds for a recorded greeting.
+8. **Smart retries.** Two attempts, not five. Put SMS/Messenger between attempts; call at high-answer times.
+9. **Shared number pools.** One local number per country/tenant pool; dedicated numbers are an add-on. This reduces number rental and improves utilization.
+10. **Budgets and kill switches.** Per-order, per-day, per-month caps; alert at 80%; terminate calls over the max duration. This prevents one bug from becoming a ৳100,000 invoice.
+11. **Prepaid credits.** In BD, use bKash/Nagad/SSLCommerz; globally, Stripe. Suspend service at zero balance. Avoid accounts receivable from small sellers.
+12. **Self-host only when the math works.** Pipecat/LiveKit + Whisper/Deepgram + small models can cut per-minute cost, but engineering and ops time are real. Migrate after ~10,000 calls/month, not before.
+13. **Negotiate telephony.** Commit to volume, use least-cost routing, and keep two carriers per market. A 20% telephony discount is often easier than a 20% price increase.
+14. **Do not give away premium features.** Custom voice, sentiment, live coaching, and multilingual auto-detection are paid add-ons, not defaults.
 
-### 9.3 Worked example: 1,000 orders/month
+### 9.3 Build vs buy by stage
 
-Assumptions: AOV ৳1,500; COD 100%; RTO 30%; cost per RTO ৳180; confirmation rate 70%; call cost ৳10 (local stack); price ৳18/call.
+| Stage | Calls/month | Stack | Cost per attempt | Why |
+|---|---|---:|---|---|
+| Pilot | < 1,000 | Vapi/Retell + Twilio/Plivo | ~৳19–25 | Speed; learn what "good" sounds like |
+| Early | 1,000–10,000 | Vapi + local SIP + cheap STT/TTS | ~৳9–13 | Cut telephony; keep orchestration |
+| Scale | 10,000–100,000 | Self-hosted pipecat/LiveKit + local SIP + small models | ~৳4–7 | Margin; control; custom voices |
+| Enterprise | 100,000+ | Multi-carrier SIP, GPU pool, custom models | ~৳3–5 | Unit economics and SLAs |
+
+**Do not migrate early.** A self-hosted stack at 2,000 calls/month is usually more expensive than Vapi once you count engineering time. Use the `VoiceProvider` interface and revisit at the volume gate.
+
+**If you are cost-constrained from day one:** get to the first 100 calls for under ~$50 using Vapi/Retell trial credits, Twilio trial credit, Google/Azure free tiers for STT/TTS, and Gemini Flash-Lite's free tier. Treat this as validation only — free tiers are not production SLAs, and the terms may restrict commercial use. The first paying seller should fund the move to a paid local SIP account.
+
+### 9.4 Pricing that leaves margin
+
+The plan is a **platform fee + included calls + overage**, not unlimited.
+
+| Plan | Price | Included calls | Overage | Cost at ৳4/attempt (optimized) | Gross margin |
+|---|---:|---:|---:|---:|---:|
+| Starter | ৳2,500/mo | 150 | ৳15 | ৳600 | 76% |
+| Growth | ৳6,000/mo | 500 | ৳12 | ৳2,000 | 67% |
+| Scale | ৳12,000/mo | 1,200 | ৳10 | ৳4,800 | 60% |
+| BYO telephony | ৳4,000/mo | 500 | ৳8 | ~৳500 (orchestration only) | 88% |
+| Setup / onboarding | ৳5,000–15,000 one-time | — | — | — | Services |
+| White-label / agency | from ৳25,000/mo | Custom | Custom | — | Enterprise |
+
+At the **managed** cost of ~৳23/attempt, Starter would lose money. That is why the pricing above assumes the hybrid/optimized stack and chat-first escalation. If you cannot get telephony cost down, raise prices or narrow the ICP.
+
+**Pricing principle: per-call pricing fights chat-first.** Every call you avoid is revenue you lose, so the model rewards you for dialing more — the opposite of what the seller wants. Charge for the outcome or include calls in a platform fee.
+
+**Outcome-aligned alternative:** ৳3,000/mo + ৳12 per confirmed order, calls included up to a fair-use cap. At 1,000 orders with 700 confirmed, revenue is ৳11,400; at ৳3,400 cost, gross margin is 70%. The seller pays for results, and you are not punished for avoiding a call. Use per-call only if a seller insists on it.
+
+### 9.5 Worked example: 1,000 orders/month
+
+Assumptions: 1,000 COD orders; 45% need a call after chat-first; 540 call attempts; 1.05 blended minutes; optimized stack at ~$0.05/min; Growth plan ৳6,000 includes 500 calls, ৳12 overage.
+
+| Line | All calls, managed | All calls, optimized | Chat-first, optimized |
+|---|---:|---:|---:|
+| Orders | 1,000 | 1,000 | 1,000 |
+| Call attempts | 1,200 | 1,200 | 540 |
+| Minutes | 1,260 | 1,260 | 567 |
+| Call cost | ৳22,700 | ৳7,560 | ৳3,400 |
+| Revenue (plan + overage) | ৳14,400 | ৳14,400 | ৳6,480 |
+| Gross profit | **–৳8,300** | ৳6,840 | ৳3,080 |
+| Gross margin | negative | 47.5% | 47.5% |
+
+The chat-first column has lower revenue — and lower absolute gross profit in this per-call model — because fewer calls are billed, even though the seller pays less than half and the buyer gets a faster answer. That is the hidden problem with per-call pricing: it rewards you for making calls, not for avoiding them. The outcome-aligned model in §9.4 fixes this; the platform fee is what decouples revenue from call volume.
+
+**Seller value (same assumptions as before):**
 
 | Line | Value |
 |---|---:|
-| Orders/month | 1,000 |
-| Calls (incl. retries) | 1,200 |
-| Call cost | ৳12,000 |
-| Revenue at ৳18/call | ৳21,600 |
-| Gross profit | ৳9,600 (44%) |
-| Fixed infra/support (allocated) | ৳4,000 |
-| Contribution | ৳5,600 |
-
-Now the merchant's value:
-
-| Line | Value |
-|---|---:|
-| RTO before | 300 returns × ৳180 = ৳54,000 |
-| RTO after an 8-point improvement | 220 returns × ৳180 = ৳39,600 |
+| RTO before (300 returns × ৳180) | ৳54,000 |
+| RTO after an 8-point improvement (220 × ৳180) | ৳39,600 |
 | Courier savings | ৳14,400 |
 | Prepaid conversion: 5% × 1,000 × ৳1,500 × 25% margin | ৳18,750 |
 | Half a caller's salary avoided | ৳10,000 |
 | **Total value** | **~৳43,150** |
-| Our price | ৳21,600 |
-| **Merchant ROI** | **~2×** |
+| Our price (Growth) | ৳6,480 |
+| **Seller ROI** | **~6.7×** |
 
-The ROI is real but not enormous. Two implications:
+The ROI is much better when the seller uses chat-first, because the price drops. Do not use the managed-stack cost in a customer-facing ROI calculator.
 
-1. **Do not sell on courier savings alone.** Sell the bundle: confirmation + address repair + prepaid conversion + labor + data.
-2. **Target merchants where the math is better:** AOV > ৳1,500, 1,000+ orders/month, high RTO, weak existing process.
+### 9.6 The uncomfortable truth about Bangladeshi labor
 
-### 9.4 The uncomfortable truth about Bangladeshi labor
-
-A human caller in Dhaka costs roughly ৳18,000–25,000/month and can make 150–250 calls/day. That is **৳3–5 per call**. An AI call at ৳10–26 is more expensive per call.
+A human caller in Dhaka costs roughly ৳18,000–25,000/month and can make 150–250 calls/day. That is **৳3–5 per call**. An AI call at ৳7–25 is more expensive per call.
 
 So the AI cannot win on **cost per call**. It wins on:
 
@@ -881,17 +1098,26 @@ So the AI cannot win on **cost per call**. It wins on:
 
 Position accordingly. If you sell "cheaper calls," you will lose to a ৳15,000/month agent.
 
-### 9.5 Telephony and caller ID in Bangladesh
+### 9.7 Telephony and caller ID
 
 This is an operational risk, not just a line item.
 
-- Twilio lists BD outbound at **$0.060/min**; Plivo at **$0.046/min**. Plivo does not support BD inbound numbers.
-- International caller IDs often get **lower answer rates**. A customer who sees a foreign number may not pick up.
-- For production, you likely need a **local SIP trunk / CLI from a BTRC-licensed provider**, or a partnership with a local call-center platform.
-- Validate: answer rate by CLI type, call quality, DTMF reliability, latency, and cost.
-- Get local legal advice on unsolicited calling, recording consent, and data protection.
+- **Bangladesh:** Twilio lists BD outbound at **$0.060/min**; Plivo at **$0.046/min**. Plivo does not support BD inbound numbers. A local BTRC-licensed SIP trunk/CLI is usually cheaper and gets better answer rates.
+- **Global:** Twilio/Telnyx/Plivo local outbound in the US is ~$0.014/min; other markets vary widely. Use a local number per market.
+- **Caller ID matters.** A customer who sees a foreign number may not pick up. Test answer rate by CLI type before promising results.
+- **Regulation varies.** Get local advice on unsolicited calling, recording consent, and data protection in each market.
+- **Keep two carriers per market** so a single outage or price change does not stop the business.
 
-**Do not sign a merchant contract promising "95% answer rate" before you have tested local CLI.**
+**Do not sign a seller contract promising "95% answer rate" before you have tested local CLI.**
+
+### 9.8 What to charge for beyond the plan
+
+- Extra language pack: ৳5,000–15,000 setup + QA.
+- Custom voice / brand voice: ৳10,000+ setup + usage.
+- Dedicated phone number: ৳1,000–2,000/month per number.
+- Courier integration: ৳5,000–20,000 setup.
+- White-label / agency: from ৳25,000/month + per-call.
+- Analytics export / API access: included in Scale, not Starter.
 
 ---
 
@@ -905,15 +1131,15 @@ Do not launch broadly. Find 10 sellers who feel the pain weekly.
 
 - Facebook seller groups and e-commerce communities (post value, not spam).
 - Instagram/Facebook pages in fashion, cosmetics, home, gadgets with high comment volume.
-- Courier partner account managers (Pathao/Steadfast/RedX/Paperfly) — ask for introductions to merchants with high RTO.
+- Courier partner account managers (Pathao/Steadfast/RedX/Paperfly) — ask for introductions to sellers with high RTO.
 - Facebook ads agencies managing multiple Pages.
 - Local e-commerce associations and startup communities.
 
 **Outreach:**
 
-> "We call every COD order within 5 minutes in Bangla and confirm the address before you ship. We cut returns by 8–15 points in pilots. Want a free 100-call test on your next 100 orders?"
+> "We confirm every COD order in 5 minutes — in your language, under your brand — before you ship. We cut returns by 8–15 points in pilots. Want a free 100-call test on your next 100 orders?"
 
-**The demo that sells:** ask for their phone number, trigger a live AI call in Bangla, and let them experience it. Then show the dashboard with the transcript and outcome. This is more persuasive than any slide.
+**The demo that sells:** ask for their phone number, ask which language and voice they want, trigger a live AI call, and let them experience it. Then show the dashboard with the transcript and outcome. The seller should hear **their brand**, not yours. This is more persuasive than any slide.
 
 ### 10.2 The pilot
 
@@ -923,8 +1149,10 @@ Do not launch broadly. Find 10 sellers who feel the pain weekly.
   - answer rate > 55%,
   - confirmation rate > 65%,
   - RTO reduction vs control > 5 points (directional in 2 weeks; keep measuring),
-  - merchant would pay for it.
+  - cost per confirmed order < 40% of the price,
+  - seller would pay for it.
 - Weekly review: listen to 5 calls together, fix the script, fix the data.
+- Language check: a native reviewer signs off on the calls before week 2.
 - No long contract. Convert to paid only if the numbers are real.
 
 ### 10.3 Pricing and packaging
@@ -933,27 +1161,33 @@ Start simple:
 
 | Plan | Price | Includes | Target |
 |---|---:|---|---|
-| Pilot | Free | 100 calls, 1 Page, 1 user | First 5 merchants |
-| Starter | ৳2,500/mo | 150 calls, 1 Page, 2 users | 100–300 orders/mo |
-| Growth | ৳6,000/mo | 500 calls, 3 Pages, analytics | 500–1,000 orders/mo |
-| Scale | ৳12,000/mo | 1,200 calls, API, priority support | 1,000+ orders/mo |
-| Overage | ৳12–15/call | | |
+| Pilot | Free | 100 calls, 1 Page, 1 user | First 5 sellers |
+| Starter | ৳2,500/mo | 150 calls, 1 language, 1 Page | 100–300 orders/mo |
+| Growth | ৳6,000/mo | 500 calls, 3 Pages, 2 languages, analytics | 500–1,000 orders/mo |
+| Scale | ৳12,000/mo | 1,200 calls, API, 3 languages, priority support | 1,000+ orders/mo |
+| BYO telephony | ৳4,000/mo | 500 calls, seller's carrier | Sellers with their own SIP/Twilio |
+| Overage | ৳10–15/call | | |
 
-**Do not offer unlimited calls.** Voice costs are real; unlimited plans attract the worst usage and destroy margin.
+**Do not offer unlimited calls.** Voice costs are real; unlimited plans attract the worst usage and destroy margin. The full margin table is in §9.4.
+
+**Also offer an outcome-aligned plan:** ৳3,000/mo + ৳12 per confirmed order, calls included up to a fair-use cap. It aligns with chat-first, avoids charging sellers for no-answers, and is easier to defend in a sales conversation.
 
 ### 10.4 Channels and partnerships
 
 - **Agencies:** white-label the dashboard; they sell to their clients; you charge per call. Faster distribution than direct sales.
-- **Couriers/3PLs:** bundle confirmation into their merchant onboarding; they already own the RTO problem.
-- **Call centers:** offer AI as an overflow/after-hours layer, not a replacement. They have the merchant relationships.
-- **Shopify/WooCommerce agencies:** integration partners for website merchants.
-- **Content:** an RTO calculator, a Bangla guide to COD confirmation, and case studies with real numbers.
+- **Couriers/3PLs:** bundle confirmation into their seller onboarding; they already own the RTO problem.
+- **Call centers:** offer AI as an overflow/after-hours layer, not a replacement. They have the seller relationships.
+- **Shopify/WooCommerce agencies:** integration partners for website sellers.
+- **Language communities and diaspora groups:** Bangladeshi, Indian, Pakistani, Arab, and Southeast Asian seller communities; the same product with a new language pack.
+- **Content:** an RTO calculator, a local-language guide to COD confirmation, and case studies with real numbers.
 
 ### 10.5 Sales objections and answers
 
 | Objection | Answer |
 |---|---|
-| "AI can't speak Bangla properly." | Live demo; recordings; slot accuracy; human fallback. Let the call speak for itself. |
+| "AI can't speak my language properly." | Live demo in their language; native reviewer; slot accuracy; human fallback. Let the call speak for itself. |
+| "We need our own brand voice." | Seller name, greeting, disclosure, voice, and language are configurable; custom voice is an add-on. |
+| "Can we use our own carrier?" | Yes — BYO telephony plan; connect Twilio/Plivo/SIP; you keep the carrier relationship. |
 | "Customers will hang up." | Pre-call Messenger/SMS, local CLI, short script; show answer-rate data from the pilot. |
 | "We already have callers." | AI handles 24/7, peaks, and repeat attempts; humans handle exceptions and high-value orders. |
 | "Is this legal?" | Consent at checkout/chat, AI disclosure, recording disclosure, DNC list, local counsel. |
@@ -968,6 +1202,9 @@ Start simple:
 - Do not call people who never ordered or opted in.
 - Do not use the HUMAN_AGENT tag for bot messages.
 - Do not launch with 10 features; launch with one workflow.
+- Do not promise a language you have not QA'd with real calls.
+- Do not offer unlimited calls or "all languages included" on day one.
+- Do not hide the AI disclosure to sound more human; it erodes trust and can be illegal.
 
 ---
 
@@ -975,34 +1212,39 @@ Start simple:
 
 ### Phase 0 — Validation (week 0, ~1 week)
 
-- Interview 10 merchants; listen to 20 real confirmation calls.
+- Interview 10 sellers; listen to 20 real confirmation calls.
 - Collect 100 real order records (anonymized) to understand fields and failure modes.
-- Test Bangla STT/TTS with 3 vendors on real phone audio.
-- Test Twilio/Plivo BD outbound and a local CLI option.
-- Write the v1 script and outcome schema.
+- Ask which languages their buyers actually speak; do not assume Bangla only.
+- Test Bangla + English STT/TTS with 3 vendors on real phone audio.
+- Test Twilio/Plivo outbound and a local CLI option in your first market.
+- Write the v1 language pack and outcome schema.
 - Start Meta Business Verification.
-- **Exit criteria:** a call recording that a merchant says "yes, I would use that."
+- **Exit criteria:** a call recording that a seller says "yes, I would use that," and a cost per attempt you can price against.
 
-### Phase 1 — Core engine (weeks 1–3)
+### Phase 1 — Core engine + language config (weeks 1–3)
 
 - Auth, orgs, orders, calls, outcomes.
+- `tenant_languages`, `agent_configs`, `script_versions`.
 - CSV import + REST API + idempotency.
 - Mock voice provider + simulator.
-- Vapi/Retell adapter + Bangla agent.
-- Retry/scheduling/calling hours/DNC.
+- Vapi/Retell adapter + Bangla and English packs.
+- Confirmation modes: `chat`, `call`, `chat_then_call`.
+- Retry/scheduling/calling hours/DNC/budget caps.
 - Dashboard: order list, call detail, transcript, recording, outcome.
-- Test-call button.
-- **Exit criteria:** 100 real calls to staff/friendly merchants; 90%+ slot accuracy on a labeled sample.
+- Test-call button + seller preview.
+- **Exit criteria:** 100 real calls to staff/friendly sellers; 90%+ slot accuracy in each launch language; cost per attempt measured.
 
-### Phase 2 — Pilot (weeks 4–6)
+### Phase 2 — Pilot + cost optimization (weeks 4–6)
 
-- 3–5 merchants; 1,000+ calls.
+- 3–5 sellers; 1,000+ calls.
+- Chat-first escalation; measure how many calls it removes.
 - A/B control group; RTO measurement.
 - WooCommerce plugin.
 - SMS pre-notice + missed-call follow-up.
 - Billing/usage metering (manual invoices okay).
+- Local SIP trial in parallel with managed telephony.
 - Script iteration from real calls.
-- **Exit criteria:** 3 merchants willing to pay; confirmation rate > 65%; cost per call < ৳15.
+- **Exit criteria:** 3 sellers willing to pay; confirmation rate > 65%; cost per attempt < ৳12; chat-first removes > 30% of calls.
 
 ### Phase 3 — Facebook (weeks 7–10; review starts week 2)
 
@@ -1013,28 +1255,31 @@ Start simple:
 - Comment-to-DM (one private reply).
 - Lead Ads fast-call.
 - Utility template for order status (if approved).
-- **Exit criteria:** App Review approved; 3 merchants live on Messenger; no policy warnings.
+- Language-aware templates and buyer-language detection.
+- **Exit criteria:** App Review approved; 3 sellers live on Messenger; no policy warnings.
 
 ### Phase 4 — Scale (weeks 11–16)
 
-- Local SIP/CLI migration.
+- Local SIP/CLI migration; BYO telephony plan.
+- Second language pack based on seller demand (Hindi/Urdu/Arabic/Indonesian).
 - Courier integrations (Pathao/Steadfast/RedX/Paperfly).
 - Agency white-label.
 - Prepaid conversion + upsell.
-- Analytics: RTO, saved revenue, agent performance.
+- Analytics: RTO, saved revenue, agent performance, cost per confirmed order.
+- Self-hosted voice evaluation at the volume gate.
 - Security review, DPA, SOC2-lite readiness.
-- **Exit criteria:** 20–30 paying merchants; positive contribution margin; < 5% monthly churn.
+- **Exit criteria:** 20–30 paying sellers; positive contribution margin; < 5% monthly churn.
 
 ### Team (lean)
 
 | Role | Focus |
 |---|---|
-| Founder / product | Merchant interviews, sales, script, pricing |
+| Founder / product | Seller interviews, sales, script, pricing |
 | Full-stack engineer | Dashboard, API, Meta adapter, billing |
-| AI/voice engineer (contract or co-founder) | STT/TTS/LLM pipeline, latency, Bangla quality |
-| Bangla QA / ops (part-time) | Listen to calls, label data, tune scripts |
+| AI/voice engineer (contract or co-founder) | STT/TTS/LLM pipeline, latency, language quality |
+| Language QA / ops (part-time, per launch language) | Listen to calls, label data, tune scripts |
 
-A solo founder can do Phase 0–1 with a voice vendor, but Bangla QA is not optional.
+A solo founder can do Phase 0–1 with a voice vendor, but **native-language QA is not optional** for each language you sell.
 
 ---
 
@@ -1049,31 +1294,36 @@ A solo founder can do Phase 0–1 with a voice vendor, but Bangla QA is not opti
 | Stage | Metric | Target |
 |---|---|---:|
 | Order ingested | Orders/day | — |
-| Call attempted | Attempt rate | > 98% |
+| Chat confirmation | `confirmed_via_chat` / orders | Track; target 40–60% where chat is enabled |
+| Call attempted | Attempt rate | > 98% of escalated orders |
 | Answered | Answer rate | > 55% |
 | Meaningful conversation | > 20 seconds | > 80% of answers |
-| Confirmed | Confirmation rate | > 65% |
+| Confirmed | Confirmation rate (chat + call) | > 65% |
 | Address repaired | Change rate | 10–20% |
 | Delivered | Delivery rate | Track vs control |
 | Returned | RTO rate | Down 5–15 points |
 
 ### 12.3 Quality
 
-- Slot accuracy (product, variant, qty, amount, address): > 95% on labeled sample.
-- ASR word error rate: track weekly; improve with vocabulary.
+- Slot accuracy (product, variant, qty, amount, address): > 95% on labeled sample, **per language**.
+- ASR word error rate: track weekly per language; improve with vocabulary.
+- Buyer language resolution accuracy: > 95%; fallback rate < 10%.
 - Human escalation rate: < 15%.
 - Complaint rate: < 1%.
-- Average call duration: 60–120s.
+- Average call duration: 60–120s; 95th percentile < 3 minutes.
 - Technical failure rate: < 2%.
+- Cost per attempt and cost per confirmed order: tracked daily, per seller and per language.
+- Chat-first call avoidance: > 30% of orders in the first month.
 
 ### 12.4 Business
 
-- Activation: merchant sends first order within 48 hours.
-- Weekly active merchants: > 70% of paying.
-- Gross margin per call: > 40%.
+- Activation: seller sends first order within 48 hours.
+- Weekly active sellers: > 70% of paying.
+- Gross margin: > 60% on Starter, > 45% blended.
 - CAC payback: < 3 months.
 - Logo churn: < 5%/month.
-- Net revenue retention: > 100% (usage growth).
+- Net revenue retention: > 100% (usage + language packs).
+- Setup revenue: > 20% of new bookings (funds onboarding and QA).
 
 ### 12.5 How to prove RTO impact
 
@@ -1081,9 +1331,9 @@ A solo founder can do Phase 0–1 with a voice vendor, but Bangla QA is not opti
 - Run for at least 2 weeks (ideally 4).
 - Compare RTO, delivery rate, cancellation rate, and prepaid conversion.
 - Control for category, AOV, day of week, and courier.
-- Publish a case study with the merchant's permission.
+- Publish a case study with the seller's permission.
 
-**Do not claim "we cut RTO by 30%" without a control group.** Merchants will ask, and the number will be challenged.
+**Do not claim "we cut RTO by 30%" without a control group.** Sellers will ask, and the number will be challenged.
 
 ---
 
@@ -1093,12 +1343,15 @@ A solo founder can do Phase 0–1 with a voice vendor, but Bangla QA is not opti
 |---|---|---|---|
 | Meta App Review delay or rejection | High | High | Start week 1; minimal permissions; screencast; website/CSV fallback |
 | Policy violation (window/tag misuse) | Medium | High | Central window guard; no cold DMs; HUMAN_AGENT only for humans; legal review |
-| Bangla ASR accuracy | High | Medium | Real-call data; custom vocabulary; DTMF fallback; human handoff |
+| Per-language ASR/voice quality | High | Medium | Real-call QA set per language; custom vocabulary; DTMF fallback; human handoff; native reviewer |
+| Language-pack sprawl / half-supported languages | Medium | High | Launch only with QA; status page per language; deprecate weak packs |
 | Low answer rates / foreign CLI | High | High | Local SIP/CLI; pre-call notice; timing; retries; A/B test |
-| Telephony regulation / consent | Medium | High | BTRC-licensed partner; consent records; DNC; local counsel |
-| Unit economics worse than planned | Medium | High | Local stack; short calls; higher-AOV ICP; per-confirmed pricing |
-| Merchant trust in AI | Medium | Medium | Pilot; recordings; transparency; money-back guarantee |
-| Competition from call centers/IVR | High | Medium | Speed, data, Bangla, FB-native intake, integrations |
+| Telephony regulation / consent | Medium | High | Licensed local partner; consent records; DNC; local counsel |
+| Unit economics worse than planned | Medium | High | Chat-first; local stack; short calls; higher-AOV ICP; per-confirmed pricing |
+| Telephony price/route changes | Medium | Medium | Two carriers per market; cost alerts; pass-through/BYO option |
+| BYO support burden | Medium | Medium | Self-serve docs; health checks; paid onboarding; limit BYO to Growth+ |
+| Seller trust in AI | Medium | Medium | Pilot; recordings; transparency; money-back guarantee |
+| Competition from call centers/IVR | High | Medium | Speed, data, local-language quality, FB-native intake, integrations |
 | Data privacy incident | Low | High | Encryption; retention; access control; deletion; incident plan |
 | Key-person dependency | Low | Medium | Document scripts/prompts; contractor bench |
 
@@ -1107,10 +1360,10 @@ A solo founder can do Phase 0–1 with a voice vendor, but Bangla QA is not opti
 | Competitor type | Strength | Weakness | Our edge |
 |---|---|---|---|
 | Human call centers | Cheap per call, trusted, flexible | Slow, inconsistent, no data, hard to scale at peaks | 24/7, speed, structured outcomes |
-| IVR providers | Cheap, simple | Keypad menus, high hang-up, no address repair | Natural Bangla conversation |
+| IVR providers | Cheap, simple | Keypad menus, high hang-up, no address repair | Natural conversation in the seller's language |
 | WhatsApp/Messenger automation tools | Cheap chat, familiar | No voice, policy-limited, no telephony | Voice + FB intake + courier workflow |
-| Horizontal AI voice platforms (Vapi, Retell, Bland) | Powerful, flexible | No FB workflow, no Bangla tuning, no local ops | Vertical product, Bangla, integrations |
-| Courier confirmation services | Bundled, cheap | Generic, not merchant-branded, limited data | Merchant-owned workflow + analytics |
+| Horizontal AI voice platforms (Vapi, Retell, Bland) | Powerful, flexible | No FB workflow, no local-language tuning, no local ops | Vertical product, language packs, integrations |
+| Courier confirmation services | Bundled, cheap | Generic, not seller-branded, limited data | Seller-owned workflow + analytics |
 
 ---
 
@@ -1120,36 +1373,43 @@ These are the decisions that change the plan. My recommendation is in bold.
 
 ### 14.1 Which market first?
 
-- **A. Bangladesh Facebook/COD sellers (recommended).** You have language and distribution advantage; the pain is acute; the unit economics are tight but workable with local SIP.
-- B. Global English e-commerce (Shopify/Woo). Higher prices, easier telephony, but you compete with many post-purchase tools and lose your language moat.
-- C. B2B distributor/dealer order confirmation. Larger order values, fewer calls, but different consent and integration model.
-- D. Gulf/Southeast Asia South Asian diaspora sellers. Higher AOV and calling costs, but harder distribution.
+- **A. Bangladesh Facebook/COD sellers (recommended beachhead).** You have distribution and language advantage; the pain is acute; the unit economics work with chat-first + local SIP.
+- B. Gulf/Southeast Asia South Asian diaspora sellers. Higher AOV and higher calling costs; harder distribution, but the same language packs.
+- C. Global English e-commerce (Shopify/Woo). Higher prices, easier telephony, but you compete with many post-purchase tools and lose the local-language edge.
+- D. B2B distributor/dealer order confirmation. Larger order values, fewer calls, different consent and integration model.
 
-**Pick A for the first 90 days. Expand to B/C only after the BD workflow is proven.**
+**Pick A for the first 90 days. Build language as a config so B and C are expansions, not rewrites.**
 
-### 14.2 Voice-first or chat-first?
+### 14.2 What should the default confirmation mode be?
 
-- **Voice-first (recommended for the wedge).** The phone call verifies reachability and intent; it is the product's differentiator.
-- Chat-first is cheaper and fits Messenger, but customers ignore chat and it does not verify the phone number.
-- Best long-term: **chat first when the window is open, voice when it is closed or when the order is high-value.**
+- **A. `chat_then_call` (recommended).** Confirm in Messenger first; call only non-responders, incomplete addresses, high-value orders, or when the seller forces a call. Cheapest and fastest.
+- B. `call` — every order gets a call. Strongest verification, highest COGS, best for high-AOV or high-fraud categories.
+- C. `chat` — no calls. Cheapest, but it is not the product you described.
+
+**Default to `chat_then_call`; let the seller choose `call` per category or order value.**
 
 ### 14.3 Build or buy the voice stack?
 
 - **Buy for the first 1,000 calls** (Vapi/Retell + Twilio/Plivo). Learn what "good" sounds like.
-- **Build/self-host once you exceed ~5,000 minutes/month** or need local SIP/custom Bangla models.
+- **Hybrid for 1,000–10,000 calls:** keep managed orchestration, move telephony to local SIP, optimize STT/TTS.
+- **Self-host after ~10,000 calls/month** or when you need custom voices/latency control.
 - Keep the `VoiceProvider` interface from day one.
+- Offer **BYO telephony** on higher plans to cut your COGS and support sellers with existing carrier relationships.
 
 ### 14.4 Direct or white-label?
 
-- **Direct for the first 10 merchants** to learn the workflow and script.
+- **Direct for the first 10 sellers** to learn the workflow and script.
 - **White-label to agencies/couriers after** you have a repeatable playbook and case studies.
-- White-label is the faster path to scale in BD, but it hides the merchant relationship and compresses margin.
+- White-label is the faster path to scale in BD, but it hides the seller relationship and compresses margin.
+- Language packs make agency expansion easy: one agency can serve sellers in multiple languages.
 
 ### 14.5 Pricing model?
 
 - **Pilot:** free 100 calls.
-- **Paid:** platform fee + per-call, then per-confirmed-order once you have proof.
-- Avoid unlimited plans and pure outcome-share until attribution is reliable.
+- **Paid:** platform fee + per-confirmed-order (preferred) or platform fee + included calls + overage (see §9.4).
+- **Add:** setup/onboarding fee, extra language packs, dedicated numbers, white-label.
+- **Later:** pure outcome-share (% of RTO saved) only when attribution is reliable.
+- Avoid unlimited plans.
 
 ### 14.6 What exactly does "confirm the purchase" mean?
 
@@ -1158,76 +1418,95 @@ These are the decisions that change the plan. My recommendation is in bold.
 - Appointment/booking: confirm time, location, reschedule.
 - The engine is the same; the script, slots, and integrations differ. **Pick one for v1.**
 
+### 14.7 Which languages at launch?
+
+- **Bangla (`bn-BD`) + English (recommended).** They cover the beachhead and most cross-border sellers.
+- Add a language only when a paying seller or a clear pipeline asks for it.
+- Require 100+ real calls, slot accuracy > 90%, and a native reviewer before launch.
+- Do not launch 10 languages to look global; support 2 well, then expand.
+
+### 14.8 Who pays for telephony?
+
+- **Platform pays (default):** simpler for the seller; you control quality; higher price.
+- **Seller pays (BYO):** lower COGS and better margin for you; more support burden; best for Scale/enterprise.
+- **Hybrid:** platform telephony on Starter/Growth; BYO on Scale.
+- Whatever you choose, show the seller a **cost per call** and a **cost per confirmed order** in the dashboard. Transparency sells.
+
 ---
 
 ## 15. What to build first in this repo
 
 If we start coding now, this is the order I would use. Each step is shippable and demoable.
 
-### Step 1 — Foundation (2–3 days)
+### Step 1 — Foundation + language config (3–4 days)
 
 - Next.js + TypeScript + Tailwind.
 - Auth + organizations + users.
 - Postgres schema: orgs, orders, calls, outcomes, usage.
+- `tenant_languages`, `agent_configs`, `script_versions`.
 - Seed data + local dev script.
+- **Demo:** switch a tenant between Bangla and English and see the config change.
 
 ### Step 2 — Order intake (2–3 days)
 
 - `POST /api/v1/orders` with idempotency key.
 - CSV upload.
 - Order list + detail.
-- Consent capture fields.
+- Consent capture fields + `buyer_locale`.
 - **Demo:** upload 20 orders, see them in the dashboard.
 
 ### Step 3 — Mock call engine (3–4 days)
 
 - `MockVoiceProvider` + a browser "call simulator."
-- Script/state machine with slots.
+- Script/state machine with slots, driven by a language pack.
 - Outcome JSON + confidence.
 - Call detail page: transcript, outcome, changes.
-- **Demo:** simulate a Bangla/English confirmation call without spending on telephony.
+- **Demo:** simulate a Bangla and an English confirmation call without spending on telephony.
 
 ### Step 4 — Real voice (3–5 days)
 
 - Vapi/Retell adapter.
-- Bangla agent config (prompt, voice, slots, guardrails).
-- Test-call button.
+- Bangla + English language packs (prompt, voice, slots, guardrails).
+- Test-call button + seller preview.
 - Webhook for call status/transcript.
 - Recording playback.
-- **Demo:** call your own phone from the dashboard.
+- **Demo:** call your own phone from the dashboard in either language.
 
-### Step 5 — Rules and reliability (3–4 days)
+### Step 5 — Rules, cost guard, reliability (4–5 days)
 
 - Call window, retries, DNC, max attempts.
+- `chat_then_call` mode; chat confirmation card.
+- Budget caps, max duration, cost alerts.
 - Queue + worker + idempotency.
 - SMS pre-notice (local aggregator or Twilio).
 - Failure handling and alerts.
 
-### Step 6 — Meta foundation (3–5 days, can run in parallel)
+### Step 6 — Meta foundation (3–5 days, run in parallel)
 
 - Webhook verification + signature check.
 - Event log + simulator.
 - Page connect OAuth + encrypted token storage.
 - Send API wrapper + window guard.
-- **Note:** you can test with your own Page in development mode before App Review.
+- **Note:** you can test with your own Page in development mode before App Review. Start this in week 1; do not wait for the voice engine to be perfect.
 
 ### Step 7 — Messenger workflow (5–7 days, after App Review or with dev-mode Page)
 
 - Receive messages.
+- Detect buyer language; reply in the seller's enabled language.
 - Extract order with an LLM + schema.
 - Create order + confirmation card.
-- Trigger call.
+- Escalate to call when needed.
 - Human handoff.
 
 ### Step 8 — Pilot hardening (1–2 weeks)
 
-- Usage metering + invoices.
-- Analytics: answer/confirmation/RTO.
+- Usage metering + invoices + prepaid credits.
+- Analytics: chat vs call, answer/confirmation/RTO, cost per confirmed order.
 - Export + webhook.
 - Audit logs + retention job.
-- Onboarding checklist.
+- Onboarding checklist + language QA sign-off.
 
-**Do not build in v1:** inbound support, multi-language beyond BN/EN, Shopify App Store listing, mobile app, custom LLM training, full CRM.
+**Do not build in v1:** inbound support, 10 language packs, Shopify App Store listing, mobile app, custom LLM training, full CRM, live agent coaching.
 
 ---
 
@@ -1248,11 +1527,13 @@ Primary sources for the policy and pricing claims in this document (accessed 23 
 - Microsoft Azure, **Speech language support** (`bn-BD` voices; STT availability): https://learn.microsoft.com/en-us/azure/ai-services/speech-service/language-support
 - Google Cloud, **Chirp 3 transcription** (`bn-BD` preview): https://docs.cloud.google.com/speech-to-text/docs/models/chirp-3
 - Google Cloud, **Gemini-TTS** (`bn-BD` GA): https://docs.cloud.google.com/text-to-speech/docs/gemini-tts
-- RTO benchmarks (secondary, for directional context): industry reports cited in §2.1; validate with local merchant data.
+- RTO benchmarks (secondary, for directional context): industry reports cited in §2.1; validate with local seller data.
 
 ---
 
-## Appendix A — Bangla call script
+## Appendix A — Bangla call script (first language pack)
+
+> This is the Bangla pack. Each language pack has its own script, voice, and QA set — do not machine-translate this one and ship it. See Appendix E for the pack schema.
 
 > Keep each turn short. Pause. Let the customer speak. Read back critical data.
 
@@ -1354,12 +1635,12 @@ Then send an SMS with the order summary and a callback number.
 
 ### B.3 Permission justifications (templates)
 
-- `pages_show_list`: "To let a merchant choose which Facebook Page to connect to their account."
+- `pages_show_list`: "To let a seller choose which Facebook Page to connect to their account."
 - `pages_manage_metadata`: "To subscribe our webhook to the Page's messages and lead events."
 - `pages_messaging`: "To read and reply to customer messages about orders, and send order confirmation updates."
 - `pages_read_engagement`: "To read comments on the Page's posts and send one private reply when a customer asks about an order."
 - `page_utility_messaging`: "To send approved non-promotional order status updates outside the 24-hour window."
-- `leads_retrieval`: "To retrieve Lead Ads form submissions so the merchant can call the customer and confirm the order."
+- `leads_retrieval`: "To retrieve Lead Ads form submissions so the seller can call the customer and confirm the order."
 
 ### B.4 Common rejection reasons
 
@@ -1401,6 +1682,8 @@ Content-Type: application/json
 {
   "external_id": "WEB-8821",
   "source": "website",
+  "locale": "bn-BD",
+  "confirmation_mode": "chat_then_call",
   "customer": {
     "name": "Rahim Uddin",
     "phone": "+8801712345678",
@@ -1452,7 +1735,7 @@ Content-Type: application/json
 ### C.3 Outcome webhook
 
 ```http
-POST https://merchant.example.com/webhooks/confirm
+POST https://seller.example.com/webhooks/confirm
 X-Signature: sha256=...
 ```
 
@@ -1461,6 +1744,7 @@ X-Signature: sha256=...
   "event": "call.completed",
   "order_id": "ord_01J...",
   "external_id": "WEB-8821",
+  "locale": "bn-BD",
   "outcome": "confirmed_with_changes",
   "confidence": 0.93,
   "changes": [
@@ -1501,63 +1785,118 @@ X-Signature: sha256=...
 
 ### Week 1 — Listen and test
 
-- 10 merchant interviews (record with permission).
+- 10 seller interviews (record with permission).
 - Listen to 20 real confirmation calls.
 - Collect 100 anonymized orders.
-- Test 3 Bangla STT/TTS combinations on real phone audio.
+- Ask which languages their buyers speak; test Bangla + English STT/TTS with 3 vendors on real phone audio.
 - Test Twilio/Plivo outbound + one local CLI option.
-- Draft the script and outcome schema.
+- Draft the two language packs and the outcome schema.
 - Start Meta Business Verification.
 
-**Deliverable:** a call recording + a one-page script that 3 merchants approve.
+**Deliverable:** call recordings in both languages + a one-page script that 3 sellers approve.
 
 ### Week 2 — Build the mock + make 100 calls
 
 - Order API + CSV + dashboard.
-- Mock call simulator.
+- Mock call simulator with two language packs.
 - Vapi/Retell integration.
-- Call 50 staff/friends + 50 friendly merchant orders.
-- Measure answer rate, slot accuracy, duration, failures.
+- Call 50 staff/friends + 50 friendly seller orders.
+- Measure answer rate, slot accuracy, duration, failures, and cost per attempt.
 
-**Deliverable:** 100 real calls and a quality report.
+**Deliverable:** 100 real calls, a quality report per language, and a real cost number.
 
-### Week 3 — Pilot with 2 merchants
+### Week 3 — Pilot with 2 sellers
 
 - 50/50 split.
+- `chat_then_call` enabled for half the orders; measure how many calls it removes.
 - Daily call review.
 - Fix script/prompt/data issues.
 - SMS pre-notice.
-- Compare confirmation and cancellation rates.
+- Compare confirmation, cancellation, and RTO signals.
 
-**Deliverable:** 300–500 calls, 2 merchant testimonials or rejections.
+**Deliverable:** 300–500 calls, 2 seller testimonials or rejections, and a chat-vs-call cost comparison.
 
 ### Week 4 — Decide
 
 Go/no-go questions:
 
-1. Did 5 of 10 merchants say they would pay ৳15–25 per call or ৳30 per confirmed order?
+1. Did 5 of 10 sellers say they would pay ৳12–20 per call or ৳30 per confirmed order?
 2. Is the answer rate > 50% with the chosen CLI?
-3. Is the confirmation rate > 65%?
-4. Is the cost per call < ৳15 (or < ৳25 with managed stack)?
-5. Did RTO improve directionally vs control?
-6. Is Meta review progressing?
+3. Is the confirmation rate > 65% in each launch language?
+4. Is the cost per attempt < ৳12 (or < ৳25 with the managed stack)?
+5. Did chat-first remove > 30% of calls without hurting confirmation?
+6. Did RTO improve directionally vs control?
+7. Is Meta review progressing?
 
-**If yes:** raise/build for Phase 2 and submit App Review.
-**If no:** narrow the ICP (higher AOV, higher RTO), switch to chat-first, or pivot to white-label for agencies.
+**If yes:** build for Phase 2 and submit App Review.
+**If no:** narrow the ICP (higher AOV, higher RTO), fix the language pack, or pivot to white-label for agencies.
+
+---
+
+## Appendix E — Language pack schema
+
+A language pack is versioned and reviewed. The seller can override brand-level fields (name, greeting, transfer number) without forking the pack.
+
+```yaml
+locale: bn-BD
+version: 3
+status: approved          # draft | in_qa | approved | deprecated
+voice:
+  provider: azure
+  voice_id: bn-BD-NabanitaNeural
+  gender: female
+  speed: 1.0
+stt:
+  provider: google
+  model: chirp_3
+  language_code: bn-BD
+  keywords: ["কুর্তি", "থ্রি-পিস", "ক্যাশ অন ডেলিভারি"]
+script:
+  greeting: "আসসালামু আলাইকুম। আমি {brand} থেকে বলছি।"
+  disclosure: "আমি {brand}-এর একটি অটোমেটেড অ্যাসিস্ট্যান্ট।"
+  confirm_product: "আপনি {product}, {variant}, {qty}টি — মোট {amount} টাকা অর্ডার করেছেন। ঠিক আছে?"
+  confirm_address: "ডেলিভারির ঠিকানা {area}, {address} — ঠিক আছে?"
+  delivery_window: "ডেলিভারি কখন নিতে চান — সকালে, দুপুরে, নাকি বিকেলে?"
+  close: "ধন্যবাদ। আপনার অর্ডার কনফার্ম হয়েছে।"
+  voicemail: "আসসালামু আলাইকুম, {brand} থেকে বলছি। আপনার অর্ডার কনফার্ম করতে {callback} নম্বরে কল করুন।"
+  dtmf: "কনফার্ম করতে ১ চাপুন, বাতিল করতে ২ চাপুন।"
+formatting:
+  currency: BDT
+  number_style: words_then_digits
+compliance:
+  recording_disclosure: true
+  call_hours: "09:00-21:00"
+  opt_out_phrase: "আর কল করবেন না"
+qa:
+  test_set_id: bn-v3-2026-10
+  calls: 120
+  slot_accuracy: 0.94
+  reviewer: "..."
+```
+
+**Rules:**
+
+- Never edit an approved pack in place; create a new version.
+- Keep seller overrides in a separate table (`tenant_overrides`) so one pack serves many sellers.
+- A pack is not approved until it passes the QA gate: 100+ real calls, slot accuracy > 90%, native reviewer sign-off.
+- Include code-switching phrases and pronunciation overrides for brand/product names.
+- Store the pack version on every call so you can replay exactly what the buyer heard.
 
 ---
 
 ## The one-page version
 
-- **Product:** AI calls COD buyers in Bangla within 5 minutes, confirms product/price/address, returns a structured outcome.
-- **Wedge:** Facebook-first sellers in Bangladesh with 300–3,000 orders/month and painful RTO.
+- **Product:** AI confirms COD orders in the seller's language and brand within 5 minutes, and returns a structured outcome.
+- **Model:** B2B SaaS sold to sellers; buyers are their customers; white-label calls.
+- **Language:** per-seller setting. Bangla + English first; new markets are language packs + local telephony, not rewrites.
 - **Facebook reality:** no outbound calling API; Messenger is intake + in-window chat; phone number must be collected; App Review is the long pole.
-- **Build order:** voice engine + website/CSV → pilot → Messenger/Lead Ads → scale.
-- **Moat:** Bangla voice quality + FB-native order extraction + courier/outcome data + local support.
-- **Business model:** platform fee + per-call, then per-confirmed-order; not unlimited.
-- **Biggest risk:** unit economics versus cheap human callers. Local SIP + short calls + higher-AOV ICP are mandatory.
-- **Proof:** 50/50 pilot, measured RTO, 3 paying merchants before building the Messenger bot.
+- **Build order:** voice engine + language config + website/CSV → Messenger → comments/Lead Ads → scale.
+- **Moat:** language-pack quality + FB-native order extraction + courier/outcome data + local support.
+- **Business model:** platform fee + per-confirmed order (preferred) or platform + calls; 60%+ gross margin; BYO telephony option.
+- **Cost strategy:** chat-first escalation + local SIP + short calls + small models; managed stack only for the pilot.
+- **Biggest risk:** unit economics vs. cheap human callers, and per-language quality. Both are engineering problems, not marketing problems.
+- **Proof:** 50/50 pilot, measured RTO, 3 paying sellers, cost per attempt under target before scaling.
 
 ---
 
-*This is a living document. Update it after every 100 calls and every merchant interview.*
+*This is a living document. Update it after every 100 calls and every seller interview.*
