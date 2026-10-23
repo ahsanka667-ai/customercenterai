@@ -2,14 +2,13 @@
 
 **AI order confirmation for Facebook-first B2B sellers — in the seller's language, under the seller's brand**
 
-Version 0.3 · 23 October 2026 · Working draft
+Version 0.4 · 23 October 2026 · Working draft
 
-> **What changed in v0.3 (after your feedback)**
-> - **Every order gets a call by default.** Chat is for intake and a pre-call notice — not a way to avoid calling. `chat_then_call` stays as an optional mode for sellers who ask for it.
-> - **Cost reduction is in the stack, not the call volume.** The plan now compares the managed API stack against building your own voice engine (self-hosted orchestration/models + local SIP).
-> - **New Integration Hub:** an event-driven connector layer — Messenger, website, WooCommerce, Sheets, couriers, CRMs, webhooks — with retries, field mappings, and a connector SDK.
-> - Pricing and roadmap are updated for a call-first product.
-
+> **What changed in v0.4 (after your feedback)**
+> - **No GPU.** All AI runs through APIs: streaming STT, a small LLM, streaming TTS.
+> - **No managed AI-caller platform** (no Vapi/Retell/Bland). You own the orchestration: a CPU-only `voice-engine` service that speaks WebSocket media streams directly.
+> - **Telephony is still required.** You can drop the AI-caller layer, but a carrier must connect the call to the PSTN. Start with Twilio/Plivo media streams; move to a local SIP trunk for cost and caller ID.
+> - Cost model, roadmap, and build steps are rewritten around the owned engine.
 ---
 
 ## 0. The short answer
@@ -51,12 +50,14 @@ Because this is **B2B SaaS**, the seller is your customer. The seller configures
 | **Confirmation mode** | `call` by default (every order); `chat_then_call` optional |
 | **Channel strategy** | Voice out; Facebook is intake + in-window chat |
 | **Integration model** | Event bus + connector SDK + signed webhooks; REST API from day one |
-| **Build order** | Voice engine + website/CSV → Messenger → comments → Lead Ads |
-| **Voice stack (first 1,000 calls)** | Vapi or Retell + Twilio/Plivo; local SIP later |
-| **Pricing (hypothesis)** | ৳2,500–3,000/mo + per confirmed order or usage; 60%+ gross margin on Starter |
+| **Build order** | Foundation + integration hub → own voice engine → Messenger → connectors |
+| **Voice stack** | Own CPU-only orchestration (Pipecat) + cloud STT/LLM/TTS APIs + Twilio media streams; local SIP next |
+| **GPU** | None. All models are API calls. |
+| **Caller platform** | None. No Vapi/Retell/Bland per-minute fee. |
+| **Pricing (hypothesis)** | ৳3,500–16,000/mo + included calls + overage; ~30% margin on Twilio, ~70% on local SIP |
 | **Time to pilot** | 3 weeks |
 | **Time to Facebook live** | 8–12 weeks, mostly App Review |
-| **Biggest risk** | Unit economics vs. cheap human callers; owning orchestration + local CLI + short calls are mandatory |
+| **Biggest risk** | Telephony cost and answer rates; local SIP is required for healthy margin. Engine latency/barge-in is the top engineering risk. |
 
 ### Glossary
 
@@ -89,7 +90,7 @@ Because this is **B2B SaaS**, the seller is your customer. The seller configures
 6. [End-to-end flows](#6-end-to-end-flows)
 7. [The AI call](#7-the-ai-call)
 8. [Architecture](#8-architecture)
-   - [8.6 Build your own voice engine vs buy](#86-build-your-own-voice-engine-vs-buy)
+   - [8.6 The voice engine you own (no GPU, no caller API)](#86-the-voice-engine-you-own-no-gpu-no-caller-api)
    - [8.7 Integration hub — the system for connecting other things](#87-integration-hub--the-system-for-connecting-other-things)
 9. [Unit economics and pricing](#9-unit-economics-and-pricing)
 10. [Go-to-market](#10-go-to-market)
@@ -222,21 +223,27 @@ The seller must be able to configure:
 
 **Do not sell a language until you have a QA set:** 100+ real calls, slot accuracy > 90%, and a native reviewer. A language pack without QA is a liability.
 
-### 2.5 Why API cost is a product problem
+### 2.5 Why the API bill is a product problem
 
-You are calling **every order**, so cost per call is the business. A managed voice platform charges ~$0.05/min on top of STT, LLM, TTS, and telephony; an international wholesale line adds another ~$0.05–0.06/min. At 1,000 calls that is manageable. At 20,000 calls it is the difference between a 40% and a 70% gross margin.
+You are calling **every order**, so cost per call is the business. The bill has four parts:
 
-The answer is **not to call less**. It is to own more of the stack:
+1. **Telephony** — the carrier that connects to the buyer's phone.
+2. **AI caller platform** — Vapi/Retell/Bland, if you use one (~$0.05/min).
+3. **AI models** — STT, LLM, TTS APIs.
+4. **Compute** — the server that runs the call loop.
 
-- **own orchestration** (Pipecat/LiveKit) instead of a per-minute voice platform,
-- **local SIP** instead of international wholesale,
-- **self-hosted or small models** instead of premium APIs where quality allows,
-- **cached TTS and short calls** to cut per-minute usage,
-- **BYO telephony** for sellers who already have a carrier.
+You have no GPU, so self-hosting models is off the table. But you **do not need a GPU** to own the call. The orchestration loop — audio in, speech-to-text, LLM turn, text-to-speech, audio out — is CPU work. A $20–40/month VPS can run it, with all AI calls going to APIs.
 
-There is a break-even. Self-hosting a GPU stack at 500 calls/month is usually more expensive than paying Vapi. The plan prices both paths and tells you when to switch (§9).
+What you can remove without a GPU:
 
-This is not a reason to skip the call. It is a reason to own the call engine.
+- the **AI caller platform fee** (~$0.05/min),
+- the **international wholesale telephony markup**, once you move to local SIP.
+
+What you cannot remove:
+
+- **telephony itself.** Someone must connect your server to the PSTN. Twilio/Plivo media streams are the fastest start; a local licensed SIP trunk is the cheaper long-term route.
+
+This is the path in §8.6 and §9.
 
 ---
 
@@ -790,7 +797,7 @@ Bangla voice is the hardest quality problem and the first proof point. Treat it 
 | STT | Google Chirp 3 `bn-BD` (preview), Azure Speech, local ASR | Keyword boosting for product names; custom vocabulary; test on 8 kHz audio |
 | LLM | GPT-4.1-mini / Gemini Flash / Claude Haiku class | Structured output; low temperature; small context |
 | TTS | ElevenLabs v4/v3 Bengali, Azure `bn-BD` Nabanita/Pradeep, Google Gemini-TTS `bn-BD` | ElevenLabs v3/v4 supports Bengali; Azure has dedicated BD voices |
-| Orchestration | Vapi, Retell, LiveKit/pipecat, Plivo Voice AI | Start managed; abstract behind an interface |
+| Orchestration | Pipecat (Python, CPU) self-hosted | Own engine from day one; no caller platform |
 | Telephony | Twilio, Plivo, local BTRC-licensed SIP trunk | Local CLI matters for answer rates |
 
 **Do not** use a premium reasoning model for every turn. Use a small, fast model with a tight prompt and a structured output schema; reserve a bigger model for post-call analysis.
@@ -850,11 +857,11 @@ flowchart LR
 
   subgraph Voice["Voice Engine (services/voice-engine)"]
     Q[Call Queue + Rules]
-    ORCH[Orchestrator<br/>Pipecat / LiveKit]
+    ORCH[Orchestrator<br/>Pipecat, CPU]
     STT[STT adapter]
     LLM[LLM adapter]
     TTS[TTS adapter]
-    GW[Media Gateway<br/>LiveKit SIP / FreeSWITCH]
+    GW[Media Gateway<br/>WebSocket / RTP]
   end
 
   subgraph Destinations
@@ -905,7 +912,7 @@ They communicate over the event bus and a small internal API. The voice engine c
 | **API** | Orders, calls, webhooks, auth, billing | Next.js route handlers or Fastify |
 | **Database** | Tenants, orders, calls, outcomes, usage | Postgres (Neon/Supabase) + Drizzle/Prisma |
 | **Queue** | Call scheduling, retries, webhook processing | Redis + BullMQ (Upstash) |
-| **Voice engine** | Own orchestration, state machine, model adapters, SIP/media | `services/voice-engine` (Pipecat/LiveKit); `MockVoiceProvider` for dev |
+| **Voice engine** | Own orchestration, state machine, model adapters, media streams | `services/voice-engine` (Pipecat, CPU); fake adapters for dev/CI |
 | **Integration hub** | Events, connectors, webhooks, retries, mappings | Postgres outbox + BullMQ + connector SDK |
 | **Telephony** | PSTN connectivity, caller ID | Twilio/Plivo first; local SIP later |
 | **Meta adapter** | OAuth, webhooks, send API, window guard | Custom module |
@@ -914,7 +921,9 @@ They communicate over the event bus and a small internal API. The voice engine c
 | **Catalog** | Product/price/stock answers in chat | CSV/Google Sheet first |
 | **Outcome analyzer** | Transcript → structured JSON | LLM with schema validation |
 | **Storage** | Recordings, exports | S3-compatible (R2/S3) |
-| **Observability** | Errors, call traces, latency, cost per call | Sentry + OpenTelemetry + call logs |
+| **Observability** | Errors, per-turn latency, barge-in, API errors, cost per call | Sentry + OpenTelemetry + call logs |
+| **Media gateway** | Per-call WebSocket/RTP session, resampling, buffering, clear/mark | Twilio Media Streams; LiveKit SIP later |
+| **AI providers** | STT, LLM, TTS adapters with fallbacks | Deepgram/Google STT · Flash-Lite/GPT-mini LLM · Azure/ElevenLabs TTS |
 | **Billing** | Plans, usage, invoices | Manual invoices first; Stripe/Paddle later + bKash/SSLCommerz |
 
 ### 8.3 Data model (core tables)
@@ -965,36 +974,65 @@ audit_logs           (id, org_id, user_id, action, target, meta_json, created_at
 - Budget caps are enforced **before dialing**, not after the invoice arrives.
 - Language packs are versioned; a change requires a new version and a QA run.
 
-### 8.4 Voice provider abstraction
+### 8.4 Adapters: telephony and AI models
 
-Keep the voice vendor swappable from day one.
+Since you are not using a managed caller API, the interfaces are lower-level. Keep every vendor swappable.
 
 ```ts
-export interface VoiceProvider {
+export interface TelephonyProvider {
   createCall(input: {
     to: string;
     from: string;
-    assistantId: string;
+    locale: string;
+    streamUrl: string;
     metadata: Record<string, string>;
-    variableValues: Record<string, string>;
   }): Promise<{ providerCallId: string; status: string }>;
 
   endCall(providerCallId: string): Promise<void>;
   transferCall(providerCallId: string, to: string): Promise<void>;
+  playFallback(providerCallId: string, text: string): Promise<void>;
   verifyWebhook(headers: Record<string, string>, rawBody: string): boolean;
-  parseWebhook(body: unknown): CallEvent[];
+}
+
+export interface SttStream {
+  sendAudio(chunk: Buffer): void;
+  onPartial(cb: (text: string) => void): void;
+  onFinal(cb: (text: string) => void): void;
+  close(): void;
+}
+
+export interface SttAdapter {
+  open(opts: { locale: string; sampleRate: number; keywords?: string[] }): Promise<SttStream>;
+}
+
+export interface LlmAdapter {
+  respond(opts: {
+    locale: string;
+    systemPrompt: string;
+    turns: Turn[];
+    tools: ToolDef[];
+  }): AsyncIterable<LlmEvent>; // token deltas + tool calls
+}
+
+export interface TtsAdapter {
+  synthesize(opts: {
+    text: string;
+    locale: string;
+    voiceId: string;
+    format: "mulaw" | "pcm";
+  }): AsyncIterable<Buffer>;
 }
 ```
 
-Implement:
+Implementations:
 
-- `VapiVoiceProvider` (or Retell) for production,
-- `MockVoiceProvider` for local dev and demos,
-- `TwilioVoiceProvider` later if you build your own pipeline.
+- `TwilioMediaStreamProvider` (first), `PlivoAudioStreamProvider`, `SipTrunkProvider` (later).
+- `DeepgramStt` / `GoogleStt` / `AzureStt`.
+- `OpenAiLlm` / `GeminiLlm`.
+- `AzureTts` / `ElevenLabsTts` / `GoogleTts`.
+- Fakes for every interface, so the whole call loop runs in CI without spending money.
 
-**Why:** Vapi/Retell are fast to start but charge a platform fee and may not support every language/voice/STT combination. You will likely move to a custom pipeline at scale. The interface protects you.
-
-Add `locale`, `voiceId`, and `scriptVersion` to `createCall`. The provider adapter resolves those to its own assistant/agent configuration; the rest of the system should not know whether the vendor is Vapi, Retell, or your own pipeline.
+The rest of the system stores `locale`, `voiceId`, `scriptVersion`, and the adapter names used on each call, so any call can be replayed or debugged.
 
 ### 8.5 Multi-tenancy and security
 
@@ -1010,46 +1048,96 @@ Add `locale`, `voiceId`, and `scriptVersion` to `createCall`. The provider adapt
 - Cost anomaly detection: alert on calls over 3 minutes, repeated retries, or a sudden cost-per-call spike.
 - Compliance: privacy policy, DPA, subprocessor list, data deletion request flow.
 
-### 8.6 Build your own voice engine vs buy
+### 8.6 The voice engine you own (no GPU, no caller API)
 
-You said you want a separate app to do the calling work and avoid heavy API bills. That is the right instinct at volume — but the economics depend on how much you self-host.
+This is the “different app” you described: a small service that owns the call loop and calls APIs for intelligence.
 
-| Approach | Time to first call | All-in cost/min | Control | Ops burden | Best for |
-|---|---|---:|---|---|---|
-| **Managed** (Vapi/Retell + Twilio/Plivo) | Days | ~$0.15 | Low | Low | First 500–1,000 calls; learning |
-| **Own orchestration + cloud models** (Pipecat/LiveKit + local SIP + cheap STT/TTS/LLM) | 3–6 weeks | ~$0.06–0.09 | High | Medium | 1,000–10,000 calls/month |
-| **Full self-hosted** (Pipecat + Whisper + vLLM + open TTS + local SIP) | 6–10 weeks | ~$0.02–0.05 at utilization | Highest | High | 10,000+ calls/month |
-
-**The honest math on self-hosting:**
-
-- A GPU box for a 7B–8B LLM + Whisper + TTS costs roughly **$300–700/month**.
-- At 1,000 calls (~1,300 minutes), that fixed cost is **$0.23–0.54/min** — worse than a managed API.
-- At 10,000 calls (~13,000 minutes), the same box is **$0.02–0.05/min** — much better.
-- Break-even versus a $0.15/min managed stack is roughly **2,500–4,000 calls/month**, before counting your engineering time.
-- Building the pipeline is **4–10 weeks** of work, plus ongoing model/ops maintenance.
-
-**Recommended path:**
-
-1. **Build the orchestration layer yourself from day one.** This is the “different app”: a `voice-engine` service using Pipecat or LiveKit Agents, with your own call state machine, prompts, guardrails, and tool calls. Do not let a vendor own the workflow.
-2. **Use cloud STT/TTS/LLM for the first 1,000–5,000 calls.** The per-minute API cost is small compared with telephony and orchestration; quality and speed matter more while you tune the product.
-3. **Move telephony to local SIP early.** This is the biggest immediate saving (3–10×) and improves answer rates.
-4. **Self-host models at the volume gate** — when GPU fixed cost divided by monthly minutes beats the API bill. Start with STT (faster-whisper) and the dialogue LLM (vLLM); keep cloud TTS for languages where open voices are weak.
-5. **Keep a cloud fallback per layer.** If self-hosted STT/TTS fails or quality drops, route that language back to Azure/Google/ElevenLabs. Reliability beats purity.
-
-**Voice engine architecture:**
-
-```text
-SIP / Twilio Media Stream
-   → media gateway (LiveKit SIP or Asterisk/FreeSWITCH)
-   → orchestrator (Pipecat): VAD → turn detection → barge-in
-   → STT worker (faster-whisper / cloud fallback)
-   → LLM worker (vLLM / Ollama / cloud fallback)
-   → TTS worker (Piper/XTTS / cloud fallback)
-   → tool calls (order lookup, address update, transfer)
-   → recording + transcript + outcome
+```mermaid
+flowchart LR
+  P[Buyer Phone] -->|PSTN| C[Carrier<br/>Twilio / Plivo / local SIP]
+  C -->|WebSocket media stream<br/>mulaw 8kHz| GW[Media Gateway<br/>per-call session]
+  GW --> VAD[VAD + turn detection<br/>Silero, CPU]
+  VAD --> STT[Streaming STT API]
+  STT --> ORCH[Dialog orchestrator<br/>state machine + LLM]
+  ORCH --> LLM[LLM API<br/>small, structured]
+  ORCH --> TOOLS[Tools:<br/>get order, update address, transfer]
+  ORCH --> TTS[Streaming TTS API]
+  TTS --> GW
+  GW -->|audio frames| C
+  ORCH --> REC[Recording + transcript + outcome]
 ```
 
-**Bangla caveat:** open-source Bangla STT/TTS quality is behind cloud providers. Validate on 200+ real calls before switching. A hybrid — self-hosted English, cloud Bangla — is often the cheapest acceptable option. Fine-tune Whisper on your own labeled call data once you have volume.
+**What runs on your CPU:**
+
+- WebSocket session handling (one per call)
+- μ-law ↔ PCM resampling
+- VAD and endpointing (Silero — a few MB, real-time on one core)
+- Turn-taking and barge-in logic
+- Audio buffering, jitter buffer, mark/clear handling
+- State machine, tool calls, and logging
+
+**What goes to APIs:**
+
+- speech-to-text (streaming),
+- the dialogue LLM (small model, structured output),
+- text-to-speech (streaming).
+
+**What you still must buy:**
+
+- **telephony.** Twilio Programmable Voice with bidirectional Media Streams is the fastest start; Plivo Audio Streaming is a cheaper alternative in some markets; a licensed local SIP trunk is the long-term answer for BD.
+
+#### Why this is cheaper than a caller API
+
+| Layer | Managed caller API | Your engine |
+|---|---|---|
+| Orchestration | ~$0.05/min platform fee | $20–40/mo VPS, ~$0.003–0.01/min |
+| Telephony | Passed through, often marked up | At cost, and cheaper on local SIP |
+| STT/LLM/TTS | Bundled or marked up | At cost, swappable |
+| Lock-in | Assistant configs live in the vendor | Your prompts, state machine, and data |
+| Language support | Whatever the vendor supports | Whatever the API supports |
+
+#### Latency budget (target < 1.5s to first audio)
+
+| Stage | Budget |
+|---|---:|
+| Carrier media stream RTT | 20–80 ms (colocate near the carrier edge) |
+| VAD endpointing (silence detection) | 200–500 ms |
+| STT final transcript | 100–300 ms |
+| LLM first token | 200–500 ms |
+| TTS first audio chunk | 150–400 ms |
+| Network + jitter buffer | 50–150 ms |
+| **Total** | **~0.7–1.9 s** |
+
+Endpointer delay dominates perceived latency. Tune it: too short cuts the buyer off, too long feels laggy. Use **interim STT results** to start the LLM early when the utterance is clearly complete.
+
+#### Media stream details that decide whether it works
+
+- **Audio format:** Twilio Media Streams send `audio/x-mulaw`, 8 kHz, base64-encoded frames (~20 ms). Decode → resample to 16 kHz PCM for STT; resample TTS output back to 8 kHz μ-law.
+- **Barge-in:** when VAD detects speech while TTS is playing, send a `clear` event to the stream to flush queued audio, cancel the TTS request, and move the state machine to listening.
+- **Marks:** use `mark` events to know when a prompt finished playing before starting the next turn.
+- **DTMF:** arrives as `dtmf` events in the stream — use it for “press 1 to confirm”.
+- **Timeouts:** 2 seconds of silence → re-prompt; 8 seconds → re-prompt; second timeout → polite close or transfer.
+- **Stream failure:** if the WebSocket drops, redirect the call to a fallback TwiML that says a short message and transfers to the seller's number. Never leave the buyer in silence.
+- **Echo:** telephony lines echo; run a half-duplex guard (don't listen while playing, or duck) unless you add AEC.
+- **Recording:** use the carrier's recording or tap the audio in the gateway; store in object storage with retention policy.
+
+#### CPU sizing and reliability
+
+- A 4 vCPU / 8 GB VPS should carry roughly **10–20 concurrent calls** with cloud AI; measure with a load test before promising capacity. CPU is not the bottleneck — API rate limits and network are.
+- Deploy in **Singapore (`ap-southeast-1`)** for BD traffic, close to the carrier edge.
+- Run the engine **stateless per call**: a call lives in one process, and the session is recoverable from the event log.
+- Use a queue for outbound dialing and a separate pool for live sessions.
+- Add circuit breakers per API; if STT or TTS fails, fall back to the alternate provider or to DTMF/transfer.
+- Track per-turn latency, barge-in count, API error rate, and fallback rate.
+
+#### What you give up by not using a caller API
+
+- You own the latency and the bugs.
+- You need to build turn-taking, barge-in, recording, and transfer yourself.
+- You need to test on real phones and real accents, not a browser demo.
+- You will spend 2–4 weeks on the media loop before the first real call.
+
+That is the trade: **higher engineering cost, much lower per-minute cost and full control.**
 
 ### 8.7 Integration hub — the system for connecting other things
 
@@ -1167,90 +1255,98 @@ api_keys           (id, org_id, hashed_key, scopes, last_used_at)
 
 > All numbers are hypotheses as of October 2026. Validate with real calls and real invoices. USD→BDT assumed at ~৳120.
 
-### 9.1 Four cost stacks
+### 9.1 Cost per minute, no GPU
 
-You are calling every order, so the question is not “how do we avoid calls?” It is “how do we make each call cheap enough to sell profitably?”
+The AI is API-based; the only fixed cost is a small VPS.
 
-| Component | Managed API | Own orchestration + cloud models | Full self-hosted (at 10k calls) |
+| Component | Own engine + Twilio media streams | Own engine + Plivo media streams | Own engine + local SIP |
 |---|---:|---:|---:|
-| Telephony | Twilio BD $0.060/min | Local SIP ~$0.010/min | Local SIP ~$0.008/min |
-| Orchestration | Vapi/Retell $0.050/min | Self-hosted Pipecat/LiveKit ~$0.004–0.040/min* | ~$0.005/min |
-| STT | $0.015/min | $0.008/min | Included in GPU |
-| LLM (dialogue) | $0.005/min | $0.003/min | Included in GPU |
-| TTS | $0.020/min | $0.012/min | Included in GPU |
-| GPU / hosting | — | ~$0.005/min | ~$0.031/min |
-| **All-in per minute** | **~$0.150 (৳18)** | **~$0.037–0.073 (৳4.5–8.8)** | **~$0.044 (৳5.3) at 10k; ~$0.021 at 30k** |
-| Cost per attempt (1.05 min) | ~৳19 | ~৳5–9 | ~৳5.5 at 10k; ~৳2.6 at 30k |
-| With 20% retry overhead | ~৳23 | ~৳6–11 | ~৳6.6 at 10k; ~৳3.1 at 30k |
+| Telephony (BD outbound) | $0.060/min | $0.046/min | ~$0.010/min |
+| Orchestration (VPS, amortized at 3,000 min/mo) | ~$0.010/min | ~$0.010/min | ~$0.010/min |
+| Streaming STT | $0.008/min | $0.008/min | $0.008/min |
+| LLM (small model, dialogue) | $0.003/min | $0.003/min | $0.003/min |
+| Streaming TTS (standard neural voice) | $0.012/min | $0.012/min | $0.012/min |
+| **All-in per minute** | **~$0.093 (৳11.2)** | **~$0.079 (৳9.5)** | **~$0.043 (৳5.2)** |
+| Cost per attempt (1.05 blended min) | ~৳11.8 | ~৳10.0 | ~৳5.5 |
+| With 20% retry overhead | ~৳14.1 | ~৳12.0 | ~৳6.6 |
 
-\* A $50/month VPS is ~$0.040/min at 1,300 minutes and ~$0.004/min at 13,000 minutes. That is why volume changes the answer.
+At 10,000 minutes/month the VPS line drops to ~$0.003/min, and at 30,000 to ~$0.001/min. **Telephony is the dominant cost in every scenario.** That is why local SIP is the single most important cost project after the engine works.
 
-**The key finding:** the biggest early saving is not self-hosting the model. It is **removing the per-minute voice-platform fee and the international wholesale telephony markup**. Own orchestration + local SIP cuts cost by roughly **50–65%** at 1,000–10,000 calls. Full self-hosting only wins at high GPU utilization — roughly **25,000+ calls/month** with the assumptions above. Do not start by buying a GPU.
+**What you save versus a managed caller API:** roughly **$0.05/min** in platform fees and the markup on STT/TTS. On 2,000 calls (~2,100 minutes) that is about **$105–110/month**, plus much better control.
 
-### 9.2 The cost-reduction playbook (call-first)
+**What you cannot save:** telephony. Twilio BD is $0.060/min; that alone is ৳7.6 for a 1.05-minute attempt. No architecture removes it — only a local carrier does.
 
-1. **Own the orchestration layer.** Pipecat or LiveKit Agents running your call state machine; you stop paying $0.05/min to Vapi/Retell. This is the “different app” you described.
-2. **Move telephony to local SIP early.** International wholesale is 3–10× more expensive and gets lower answer rates. Partner with a licensed local carrier per market.
-3. **Keep cloud STT/TTS/LLM for the first 5,000 calls.** The per-minute API cost is small next to telephony; quality and speed matter more while you tune the script.
-4. **Self-host one layer at a time.** Start with STT (faster-whisper) or the dialogue LLM (vLLM), not both. Keep a cloud fallback per language.
+### 9.2 Cost-reduction playbook (call-first, no GPU)
+
+1. **Own the orchestration.** Pipecat on a CPU VPS; no per-minute platform fee. This is the “different app.”
+2. **Use streaming everything.** Streaming STT, streaming TTS, and token-streamed LLM. Batch calls add 300–800 ms and make the agent feel robotic.
+3. **Local SIP early.** 3–10× cheaper than international wholesale and better caller ID. Do it before scaling past ~1,000 calls/month.
+4. **Small models for dialogue.** A Flash-Lite/nano/8B-class API model is enough for a structured confirmation script; reserve a larger model for post-call analysis, run in batch.
 5. **Short, structured calls.** 45–90 seconds, max 2 re-prompts, DTMF fallback. A 3-minute call costs 2–3× a 70-second call.
-6. **TTS caching.** Pre-render the greeting, disclosure, close, and DTMF prompts; synthesize only the variable slots. Use standard voices by default; custom voice is an add-on.
+6. **Pre-render fixed prompts.** Greeting, disclosure, close, and DTMF lines can be cached audio files; only the variable slots need TTS.
 7. **AMD / voicemail detection.** Hang up on voicemail, send SMS, retry. Never pay 60 seconds for a recorded greeting.
-8. **Smart retries, not endless retries.** Two attempts plus SMS/Messenger between them; call at high-answer times.
-9. **Budgets and kill switches.** Per-order, per-day, per-month caps; alert at 80%; terminate calls over the max duration.
-10. **BYO telephony.** Let larger sellers connect their own Twilio/Plivo/SIP account; you charge software only.
-11. **Shared number pools.** One local number per country/tenant pool; dedicated numbers are an add-on.
-12. **Negotiate telephony.** Commit to volume, use least-cost routing, keep two carriers per market.
-13. **Measure GPU utilization before self-hosting.** If the GPU is idle 80% of the day, you are paying for capacity you do not use. Cloud models are cheaper until utilization is high.
-14. **Do not give away premium features.** Custom voice, sentiment, live coaching, and multilingual auto-detection are paid add-ons.
+8. **Smart retries.** Two attempts plus SMS/Messenger between them; call at high-answer times.
+9. **BYO telephony.** Larger sellers connect their own Twilio/Plivo/SIP; you charge software only.
+10. **Shared number pools.** One local number per country/tenant pool; dedicated numbers are an add-on.
+11. **Budgets and kill switches.** Per-order, per-day, per-month caps; alert at 80%; terminate calls over the max duration.
+12. **Measure cost per connected minute, not per dial.** No-answers are cheap; the number that matters is cost per confirmed order.
+13. **Do not buy a GPU.** At your volume it is 5–20× more expensive than APIs. Revisit only at high, sustained utilization.
+14. **Negotiate telephony.** Commit to volume, use least-cost routing, keep two carriers per market.
 
-### 9.3 Build vs buy by stage
+### 9.3 Build vs buy by stage (no GPU path)
 
-| Stage | Calls/month | Recommended stack | Cost per attempt | Why |
+| Stage | Calls/month | Stack | Cost per attempt | Why |
 |---|---|---:|---:|---|
-| Pilot | < 1,000 | Managed (Vapi/Retell + Twilio) | ~৳19–23 | Fastest path to real calls; no ops burden |
-| Early | 1,000–10,000 | **Own orchestration + local SIP + cloud models** | ~৳6–11 | Cuts platform fee and telephony markup |
-| Scale | 10,000–30,000 | Own orchestration + local SIP + self-hosted STT/LLM; cloud TTS for weak languages | ~৳4–7 | Best balance of quality and cost |
-| High volume | 30,000+ | Full self-hosted + multi-carrier SIP | ~৳2.5–4 | GPU utilization high enough to win |
+| Prototype | < 200 | Own engine + Twilio media streams | ~৳12–14 | Prove the media loop and the script |
+| Pilot | 200–2,000 | Own engine + Twilio/Plivo; local SIP trial | ~৳10–14 | Learn; keep the carrier simple |
+| Early scale | 2,000–10,000 | Own engine + local SIP + cloud AI | ~৳5–7 | Telephony is now the main lever |
+| Scale | 10,000+ | Own engine + local SIP + multi-carrier + reserved API capacity | ~৳4–6 | Margin and reliability |
 
-**Break-even math:** at ~$400/month GPU fixed cost, self-hosting beats a $0.05/min cloud-model stack at roughly **8,000–10,000 minutes/month** (about 6,000–8,000 calls), before engineering time. It beats the managed stack earlier, but that is because the managed stack is expensive — own orchestration + cloud models already captures most of the saving.
+**The only “buy” decision left is telephony.** You can start with Twilio/Plivo media streams and move to a local SIP trunk without changing the engine, because the `TelephonyProvider` interface isolates it.
 
-**The practical recommendation:** build the voice engine as your own service now; run it on cloud models and local SIP. Add self-hosted models when you cross ~10,000 calls/month and can keep the GPU busy. Do not wait for perfect self-hosting to start selling.
+**What you should not build:** your own ASR, TTS, or LLM. No GPU, and the APIs are good enough. Use your engineering time on the call loop, the script, and the integrations.
 
 ### 9.4 Pricing that leaves margin
 
-Because you are calling every order, your price must cover a real call for every order — including no-answers and cancellations. Do not price like a chat tool.
+Because every order gets a call, price must cover a real call for every order — including no-answers and cancellations.
 
-| Plan | Price | Included calls | Overage | Cost at ৳9/attempt (own stack, 1k calls) | Gross margin |
+**Phase A — Twilio-only (pilot):** near-cost pricing is acceptable for the first 500 calls. Margin is thin; treat it as paid learning.
+
+| Plan | Price | Included calls | Overage | Cost at ৳13/attempt | Gross margin |
 |---|---:|---:|---:|---:|---:|
-| Starter | ৳2,500/mo | 100 | ৳20 | ৳900 | 64% |
-| Growth | ৳6,000/mo | 300 | ৳17 | ৳2,700 | 55% |
-| Scale | ৳12,000/mo | 700 | ৳14 | ৳6,300 | 48% |
-| BYO telephony | ৳4,000/mo | 300 | ৳12 | ~৳1,500 (orchestration only) | 63% |
-| Setup / onboarding | ৳5,000–15,000 one-time | — | — | — | Services |
-| White-label / agency | from ৳25,000/mo | Custom | Custom | — | Enterprise |
+| Starter | ৳3,500/mo | 100 | ৳25 | ৳1,300 | 63% |
+| Growth | ৳8,000/mo | 300 | ৳20 | ৳3,900 | 51% |
+| Scale | ৳16,000/mo | 700 | ৳17 | ৳9,100 | 43% |
 
-At 1,000 orders (1,200 attempts), a Growth plan would bill ৳6,000 + 900 × ৳17 = **৳21,300**, against ~৳10,800 cost — **49% gross margin**. At 10,000 orders with the same plan, revenue is ৳6,000 + 11,700 × ৳14 = **৳169,800**, against ~৳67,200 cost — **60% gross margin**. Scale improves margin; do not promise scale pricing before you have scale.
+At 1,000 orders, Growth bills ৳8,000 + 700 × ৳20 = **৳22,000** against ~৳15,600 cost: **29% margin**. Workable, not great.
 
-**Per-confirmed-order alternative:** ৳2,500/mo + ৳30 per confirmed order. At 700 confirmed, revenue is **৳23,500**, cost ~৳10,800, margin **54%**. It aligns with the seller's outcome and avoids charging for no-answers, but you eat the cost of unreachable numbers. Use it once your answer-rate data is stable.
+**Phase B — local SIP (target):** the same prices, with cost at ~৳6/attempt.
 
-**Do not offer unlimited calls.** A seller with fake orders or a broken checkout will destroy your margin.
+At 1,000 orders, Growth: **৳22,000** revenue against ~৳7,200 cost: **67% margin**. This is the business.
+
+| Plan | Price | Included calls | Overage | Cost at ৳6/attempt | Gross margin |
+|---|---:|---:|---:|---:|---:|
+| Starter | ৳3,500/mo | 100 | ৳25 | ৳600 | 83% |
+| Growth | ৳8,000/mo | 300 | ৳20 | ৳1,800 | 78% |
+| Scale | ৳16,000/mo | 700 | ৳17 | ৳4,200 | 74% |
+
+**Conclusion:** do not scale on Twilio BD at $0.060/min. Use it to reach the first ~2,000 calls, then sign local SIP. Price as if local SIP is coming, and do not promise “unlimited.”
+
+**Per-confirmed-order alternative:** ৳2,500/mo + ৳30 per confirmed order. At 700 confirmed, revenue is **৳23,500** against ~৳15,600 (Twilio) or ~৳7,200 (local SIP). Use it once answer-rate data is stable.
 
 ### 9.5 Worked example: 1,000 orders/month
 
-Assumptions: 1,000 COD orders; every order gets a call; 1,200 attempts; 1.05 blended minutes; Growth plan ৳6,000 includes 300 calls, ৳17 overage.
+Assumptions: 1,000 COD orders; every order gets a call; 1,200 attempts; 1.05 blended minutes; Growth plan ৳8,000 includes 300 calls, ৳20 overage.
 
-| Line | Managed API | Own orchestration + cloud | Own stack at 10k scale |
+| Line | Twilio media streams | Plivo media streams | Local SIP |
 |---|---:|---:|---:|
 | Orders | 1,000 | 1,000 | 1,000 |
 | Call attempts | 1,200 | 1,200 | 1,200 |
 | Minutes | 1,260 | 1,260 | 1,260 |
-| Call cost | ৳22,700 | ৳10,800 | ৳6,700 |
-| Revenue (plan + overage) | ৳21,300 | ৳21,300 | ৳21,300 |
-| Gross profit | **–৳1,400** | ৳10,500 | ৳14,600 |
-| Gross margin | negative | 49% | 69% |
-
-The “own stack at 10k scale” column assumes you have already amortized the GPU and Vapi fee across 10,000 calls. At 1,000 calls, the realistic path is own orchestration + cloud models.
+| Call cost | ৳14,100 | ৳12,000 | ৳6,600 |
+| Revenue (plan + overage) | ৳22,000 | ৳22,000 | ৳22,000 |
+| Gross profit | ৳7,900 | ৳10,000 | ৳15,400 |
+| Gross margin | 36% | 45% | 70% |
 
 **Seller value (same assumptions):**
 
@@ -1262,14 +1358,14 @@ The “own stack at 10k scale” column assumes you have already amortized the G
 | Prepaid conversion: 5% × 1,000 × ৳1,500 × 25% margin | ৳18,750 |
 | Half a caller's salary avoided | ৳10,000 |
 | **Total value** | **~৳43,150** |
-| Our price (Growth) | ৳21,300 |
+| Our price (Growth, 1,000 orders) | ৳22,000 |
 | **Seller ROI** | **~2×** |
 
-The ROI is positive but not enormous. That is why you target sellers with AOV > ৳1,500, 1,000+ orders/month, and a real RTO problem — and why you must get the stack cost down as you scale.
+The ROI is positive but not huge at 1,000 orders. Target sellers with AOV > ৳1,500 and 1,000+ orders, and sell the address repair and prepaid conversion — not just the call.
 
 ### 9.6 The uncomfortable truth about local labor
 
-A human caller in Dhaka costs roughly ৳18,000–25,000/month and can make 150–250 calls/day. That is **৳3–5 per call**. An AI call at ৳8–20 is more expensive per call.
+A human caller in Dhaka costs roughly ৳18,000–25,000/month and can make 150–250 calls/day. That is **৳3–5 per call**. An AI call at ৳6–14 is still more expensive per call.
 
 So the AI cannot win on **cost per call**. It wins on:
 
@@ -1290,6 +1386,7 @@ This is an operational risk, not just a line item.
 - **Bangladesh:** Twilio lists BD outbound at **$0.060/min**; Plivo at **$0.046/min**. Plivo does not support BD inbound numbers. A local BTRC-licensed SIP trunk/CLI is usually cheaper and gets better answer rates.
 - **Global:** Twilio/Telnyx/Plivo local outbound in the US is ~$0.014/min; other markets vary widely. Use a local number per market.
 - **Caller ID matters.** A buyer who sees a foreign number may not pick up. Test answer rate by CLI type before promising results.
+- **Media Streams cost:** Twilio does not charge extra for bidirectional Media Streams beyond the voice minute; confirm current terms for your account. Plivo Audio Streaming is similar.
 - **Regulation varies.** Get local advice on unsolicited calling, recording consent, and data protection in each market.
 - **Keep two carriers per market** so a single outage or price change does not stop the business.
 
@@ -1423,16 +1520,16 @@ Start simple:
 ### Phase 2 — Pilot + cost optimization (weeks 4–6)
 
 - 3–5 sellers; 1,000+ calls.
-- Own-orchestration voice engine: Pipecat/LiveKit service + local SIP trial + cloud STT/TTS/LLM.
-- Measure cost per attempt on both the managed and owned stacks.
+- Own-orchestration voice engine: Pipecat service + Twilio media streams + cloud STT/TTS/LLM; local SIP trial.
+- Measure cost per attempt on Twilio vs. Plivo media streams vs. local SIP.
 - A/B control group; RTO measurement.
 - WooCommerce plugin.
 - SMS pre-notice + missed-call follow-up.
 - Billing/usage metering (manual invoices okay).
-- Local SIP trial in parallel with managed telephony.
+- Local SIP trial in parallel with Twilio media streams.
 - Google Sheets + WooCommerce connectors.
 - Script iteration from real calls.
-- **Exit criteria:** 3 sellers willing to pay; confirmation rate > 65%; cost per attempt < ৳12 on the owned stack; no quality regression vs. the managed stack.
+- **Exit criteria:** 3 sellers willing to pay; confirmation rate > 65%; cost per attempt < ৳14 on Twilio and < ৳8 on local SIP; first-audio latency < 1.5s at p50.
 
 ### Phase 3 — Facebook (weeks 7–10; review starts week 2)
 
@@ -1454,7 +1551,7 @@ Start simple:
 - Agency white-label.
 - Prepaid conversion + upsell.
 - Analytics: RTO, saved revenue, agent performance, cost per confirmed order.
-- Self-hosted voice evaluation at the volume gate.
+- Second telephony carrier + SIP failover; API cost/latency review.
 - Security review, DPA, SOC2-lite readiness.
 - **Exit criteria:** 20–30 paying sellers; positive contribution margin; < 5% monthly churn.
 
@@ -1500,8 +1597,21 @@ A solo founder can do Phase 0–1 with a voice vendor, but **native-language QA 
 - Complaint rate: < 1%.
 - Average call duration: 60–120s; 95th percentile < 3 minutes.
 - Technical failure rate: < 2%.
-- Cost per attempt and cost per confirmed order: tracked daily, per seller, per language, and per stack.
+- Cost per attempt and cost per confirmed order: tracked daily, per seller, per language, and per carrier.
 - Connector delivery success rate: > 99%; dead-letter rate < 0.5%.
+
+### 12.3b Voice-engine quality
+
+| Metric | Target |
+|---|---|
+| First-audio latency (p50 / p95) | < 1.2s / < 2.0s |
+| End-to-end turn latency (p50) | < 1.5s |
+| Barge-in success (agent stops within 300 ms) | > 95% |
+| Calls with a stream/session failure | < 1% |
+| Fallback to human transfer | < 15% |
+| Voicemail detected and skipped | > 90% |
+| Calls with a TTS/STT provider error | < 2% |
+| Avg cost per connected minute | Measured per carrier and per provider |
 
 ### 12.4 Business
 
@@ -1538,7 +1648,8 @@ A solo founder can do Phase 0–1 with a voice vendor, but **native-language QA 
 | Unit economics worse than planned | Medium | High | Own orchestration; local SIP; short calls; higher-AOV ICP; per-confirmed pricing |
 | Telephony price/route changes | Medium | Medium | Two carriers per market; cost alerts; pass-through/BYO option |
 | BYO support burden | Medium | Medium | Self-serve docs; health checks; paid onboarding; limit BYO to Growth+ |
-| Self-hosted voice engine ops (latency, GPU, model drift) | Medium | High | Keep cloud fallback per layer; canary + golden set; on-call runbook; start with cloud models |
+| Own voice engine ops (latency, barge-in, stream failures) | High | High | Golden set + load tests; per-turn latency metrics; fallback TwiML + human transfer; on-call runbook |
+| API provider outage or price change | Medium | High | Two providers per layer (STT/TTS/LLM); circuit breakers; cache fixed prompts; contract review |
 | Connector breakage (courier/CRM API changes) | High | Medium | Health checks; circuit breaker; dead-letter + replay; versioned mappings; per-connector tests |
 | Integration hub scope creep | High | Medium | Generic webhook + 3 connectors first; everything else via API/webhook; no connector marketplace in v1 |
 | Seller trust in AI | Medium | Medium | Pilot; recordings; transparency; money-back guarantee |
@@ -1581,11 +1692,10 @@ These are the decisions that change the plan. My recommendation is in bold.
 
 ### 14.3 Build or buy the voice stack?
 
-- **Buy for the first 1,000 calls** (Vapi/Retell + Twilio/Plivo). Learn what "good" sounds like.
-- **Hybrid for 1,000–10,000 calls:** keep managed orchestration, move telephony to local SIP, optimize STT/TTS.
-- **Self-host after ~10,000 calls/month** or when you need custom voices/latency control.
-- Keep the `VoiceProvider` interface from day one.
-- Offer **BYO telephony** on higher plans to cut your COGS and support sellers with existing carrier relationships.
+- **Build the orchestration engine from day one** (Pipecat on a CPU VPS). No caller API.
+- **Buy AI APIs** for STT, LLM, and TTS. No GPU, no model hosting.
+- **Start with Twilio bidirectional Media Streams**, then Plivo Audio Streaming, then a local SIP trunk. Keep the `TelephonyProvider` interface.
+- **Offer BYO telephony** on higher plans to cut your COGS and support sellers with existing carriers.
 
 ### 14.4 Direct or white-label?
 
@@ -1667,8 +1777,8 @@ The repo is currently empty, so the build order matters more than usual. The goa
 
 ### Step 5 — Own voice engine (2–3 weeks)
 
-- `voice-engine` service: Pipecat (or LiveKit Agents) + call state machine.
-- Local SIP connector (first carrier) + Twilio fallback.
+- `voice-engine` service: Pipecat + call state machine.
+- Twilio bidirectional Media Streams first (WebSocket, μ-law 8 kHz); Plivo next.
 - Cloud STT/TTS/LLM adapters with per-language fallback.
 - Barge-in, VAD, voicemail detection, DTMF, transfer.
 - Call webhooks: started, transcript chunk, ended, outcome.
@@ -2014,18 +2124,18 @@ X-Signature: sha256=...
 - Call 50 staff/friends + 50 friendly seller orders.
 - Measure answer rate, slot accuracy, duration, failures, and cost per attempt.
 
-**Deliverable:** 100 real calls, a quality report per language, and a real cost number.
+**Deliverable:** 100 real calls, a quality report per language, a real cost number, and p50/p95 first-audio latency.
 
 ### Week 3 — Pilot with 2 sellers
 
 - 50/50 split.
-- Compare the managed stack and the owned voice engine on 50/50 of the calls; measure cost, latency, and confirmation rate.
+- Compare Twilio media streams vs. local SIP on 50/50 of the calls; measure cost, latency, answer rate, and confirmation rate.
 - Daily call review.
 - Fix script/prompt/data issues.
 - SMS pre-notice.
 - Compare confirmation, cancellation, and RTO signals.
 
-**Deliverable:** 300–500 calls, 2 seller testimonials or rejections, and a managed-vs-owned cost comparison.
+**Deliverable:** 300–500 calls, 2 seller testimonials or rejections, and a Twilio-vs-local-SIP cost/latency comparison.
 
 ### Week 4 — Decide
 
@@ -2034,8 +2144,8 @@ Go/no-go questions:
 1. Did 5 of 10 sellers say they would pay ৳12–20 per call or ৳30 per confirmed order?
 2. Is the answer rate > 50% with the chosen CLI?
 3. Is the confirmation rate > 65% in each launch language?
-4. Is the cost per attempt < ৳12 (or < ৳25 with the managed stack)?
-5. Is the owned voice engine within 1 point of the managed stack on confirmation rate, and at least 40% cheaper per attempt?
+4. Is the cost per attempt < ৳14 on Twilio and < ৳8 on local SIP?
+5. Is first-audio latency < 1.5s at p50 and barge-in working on real phones?
 6. Did RTO improve directionally vs control?
 7. Is Meta review progressing?
 
@@ -2101,11 +2211,11 @@ qa:
 - **Model:** B2B SaaS sold to sellers; buyers are their customers; white-label calls.
 - **Language:** per-seller setting. Bangla + English first; new markets are language packs + local telephony, not rewrites.
 - **Facebook reality:** no outbound calling API; Messenger is intake + in-window chat; phone number must be collected; App Review is the long pole.
-- **Build order:** foundation + language config → integration hub → mock calls → own voice engine → Messenger → connectors.
+- **Build order:** foundation + language config → integration hub → call simulator → own CPU voice engine → Messenger → connectors.
 - **Moat:** language-pack quality + FB-native order extraction + courier/outcome data + the integration layer sellers build their operations on.
-- **Business model:** platform fee + included calls + overage, or platform fee + per-confirmed order; 60%+ gross margin; BYO telephony option.
-- **Cost strategy:** own the orchestration layer + local SIP + short calls + small models; self-host at the volume gate.
-- **Biggest risk:** unit economics vs. cheap human callers, per-language quality, and voice-engine ops. All engineering problems, not marketing problems.
+- **Business model:** platform fee + included calls + overage, or platform fee + per-confirmed order; ~30% margin on Twilio, ~70% on local SIP; BYO telephony option.
+- **Cost strategy:** own the orchestration layer (no per-minute platform) + local SIP + short calls + small cloud models. No GPU, no caller API.
+- **Biggest risk:** telephony cost/answer rates, per-language quality, and voice-engine latency. All engineering and ops problems, not marketing problems.
 - **Proof:** 50/50 pilot, measured RTO, 3 paying sellers, cost per attempt under target before scaling.
 
 ---
