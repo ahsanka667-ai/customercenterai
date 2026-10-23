@@ -2,13 +2,13 @@
 
 **AI order confirmation for Facebook-first B2B sellers — in the seller's language, under the seller's brand**
 
-Version 0.4 · 23 October 2026 · Working draft
+Version 0.5 · 23 October 2026 · Working draft
 
-> **What changed in v0.4 (after your feedback)**
-> - **No GPU.** All AI runs through APIs: streaming STT, a small LLM, streaming TTS.
-> - **No managed AI-caller platform** (no Vapi/Retell/Bland). You own the orchestration: a CPU-only `voice-engine` service that speaks WebSocket media streams directly.
-> - **Telephony is still required.** You can drop the AI-caller layer, but a carrier must connect the call to the PSTN. Start with Twilio/Plivo media streams; move to a local SIP trunk for cost and caller ID.
-> - Cost model, roadmap, and build steps are rewritten around the owned engine.
+> **What changed in v0.5 (after your feedback)**
+> - **Own telephony is now the target.** You can run your own SIP/media stack (FreeSWITCH or Kamailio) and connect it to a BTRC-licensed IPTSP's SIP trunk. No BTRC licence is needed to *use* a trunk; one is needed to *resell* telephony.
+> - **The cost headline changes.** BD IPTSP trunks publish **৳0.30–0.40/min + 15% VAT** (~$0.0033–0.0044/min) versus Twilio's **$0.060/min** — roughly a **15–18×** telephony saving.
+> - **New section §9.9** covers the three levels of "owning telephony", the legal boundaries, the SIP architecture, and a provider checklist.
+> - Roadmap, risks, pricing, and the cost model are recalculated.
 ---
 
 ## 0. The short answer
@@ -51,13 +51,14 @@ Because this is **B2B SaaS**, the seller is your customer. The seller configures
 | **Channel strategy** | Voice out; Facebook is intake + in-window chat |
 | **Integration model** | Event bus + connector SDK + signed webhooks; REST API from day one |
 | **Build order** | Foundation + integration hub → own voice engine → Messenger → connectors |
-| **Voice stack** | Own CPU-only orchestration (Pipecat) + cloud STT/LLM/TTS APIs + Twilio media streams; local SIP next |
+| **Voice stack** | Own CPU-only orchestration (Pipecat) + cloud STT/LLM/TTS APIs + Twilio media streams → own FreeSWITCH SIP core |
 | **GPU** | None. All models are API calls. |
+| **Telephony path** | Twilio Media Streams (pilot) → own FreeSWITCH/Kamailio + BD IPTSP SIP trunk (target) |
 | **Caller platform** | None. No Vapi/Retell/Bland per-minute fee. |
-| **Pricing (hypothesis)** | ৳3,500–16,000/mo + included calls + overage; ~30% margin on Twilio, ~70% on local SIP |
+| **Pricing (hypothesis)** | ৳3,500–16,000/mo + included calls + overage; ~45% margin on Twilio, ~78% with own SIP core + IPTSP |
 | **Time to pilot** | 3 weeks |
 | **Time to Facebook live** | 8–12 weeks, mostly App Review |
-| **Biggest risk** | Telephony cost and answer rates; local SIP is required for healthy margin. Engine latency/barge-in is the top engineering risk. |
+| **Biggest risk** | Answer rate on `096` CLI and SIP ops; telephony cost is solved by owning the SIP core, but CLI reputation is not. Engine latency/barge-in is the top engineering risk. |
 
 ### Glossary
 
@@ -93,6 +94,7 @@ Because this is **B2B SaaS**, the seller is your customer. The seller configures
    - [8.6 The voice engine you own (no GPU, no caller API)](#86-the-voice-engine-you-own-no-gpu-no-caller-api)
    - [8.7 Integration hub — the system for connecting other things](#87-integration-hub--the-system-for-connecting-other-things)
 9. [Unit economics and pricing](#9-unit-economics-and-pricing)
+   - [9.9 Own telephony: what you can and cannot build in Bangladesh](#99-own-telephony-what-you-can-and-cannot-build-in-bangladesh)
 10. [Go-to-market](#10-go-to-market)
 11. [Roadmap](#11-roadmap)
 12. [Metrics and proof](#12-metrics-and-proof)
@@ -237,7 +239,7 @@ You have no GPU, so self-hosting models is off the table. But you **do not need 
 What you can remove without a GPU:
 
 - the **AI caller platform fee** (~$0.05/min),
-- the **international wholesale telephony markup**, once you move to local SIP.
+- the **international wholesale telephony markup**, once you move to a licensed IPTSP trunk.
 
 What you cannot remove:
 
@@ -914,7 +916,7 @@ They communicate over the event bus and a small internal API. The voice engine c
 | **Queue** | Call scheduling, retries, webhook processing | Redis + BullMQ (Upstash) |
 | **Voice engine** | Own orchestration, state machine, model adapters, media streams | `services/voice-engine` (Pipecat, CPU); fake adapters for dev/CI |
 | **Integration hub** | Events, connectors, webhooks, retries, mappings | Postgres outbox + BullMQ + connector SDK |
-| **Telephony** | PSTN connectivity, caller ID | Twilio/Plivo first; local SIP later |
+| **Telephony** | PSTN connectivity, caller ID, CDRs | Twilio Media Streams (pilot) → FreeSWITCH + BD IPTSP SIP trunk (target) |
 | **Meta adapter** | OAuth, webhooks, send API, window guard | Custom module |
 | **Language service** | Locale resolution, language packs, voice mapping, fallback | Postgres + versioned JSON packs |
 | **Cost guard** | Budget caps, max duration, model routing, alerts | Usage metering + kill switch |
@@ -1026,7 +1028,7 @@ export interface TtsAdapter {
 
 Implementations:
 
-- `TwilioMediaStreamProvider` (first), `PlivoAudioStreamProvider`, `SipTrunkProvider` (later).
+- `TwilioMediaStreamProvider` (first), `PlivoAudioStreamProvider`, `FreeSwitchSipTrunkProvider` (target), plus a fake for CI.
 - `DeepgramStt` / `GoogleStt` / `AzureStt`.
 - `OpenAiLlm` / `GeminiLlm`.
 - `AzureTts` / `ElevenLabsTts` / `GoogleTts`.
@@ -1084,14 +1086,14 @@ flowchart LR
 
 **What you still must buy:**
 
-- **telephony.** Twilio Programmable Voice with bidirectional Media Streams is the fastest start; Plivo Audio Streaming is a cheaper alternative in some markets; a licensed local SIP trunk is the long-term answer for BD.
+- **telephony.** Twilio Programmable Voice with bidirectional Media Streams is the fastest start; Plivo Audio Streaming is cheaper in some markets; a licensed local IPTSP trunk + your own FreeSWITCH is the long-term answer for BD (see §9.9).
 
 #### Why this is cheaper than a caller API
 
 | Layer | Managed caller API | Your engine |
 |---|---|---|
 | Orchestration | ~$0.05/min platform fee | $20–40/mo VPS, ~$0.003–0.01/min |
-| Telephony | Passed through, often marked up | At cost, and cheaper on local SIP |
+| Telephony | Passed through, often marked up | ৳0.40/min on a BD IPTSP trunk (~15× cheaper) |
 | STT/LLM/TTS | Bundled or marked up | At cost, swappable |
 | Lock-in | Assistant configs live in the vendor | Your prompts, state machine, and data |
 | Language support | Whatever the vendor supports | Whatever the API supports |
@@ -1259,22 +1261,22 @@ api_keys           (id, org_id, hashed_key, scopes, last_used_at)
 
 The AI is API-based; the only fixed cost is a small VPS.
 
-| Component | Own engine + Twilio media streams | Own engine + Plivo media streams | Own engine + local SIP |
+| Component | Twilio media streams | Plivo media streams | Own FreeSWITCH + BD IPTSP trunk |
 |---|---:|---:|---:|
-| Telephony (BD outbound) | $0.060/min | $0.046/min | ~$0.010/min |
+| Telephony (BD outbound) | $0.060/min | $0.046/min | **৳0.40 + 15% VAT ≈ $0.0038/min** |
 | Orchestration (VPS, amortized at 3,000 min/mo) | ~$0.010/min | ~$0.010/min | ~$0.010/min |
 | Streaming STT | $0.008/min | $0.008/min | $0.008/min |
 | LLM (small model, dialogue) | $0.003/min | $0.003/min | $0.003/min |
 | Streaming TTS (standard neural voice) | $0.012/min | $0.012/min | $0.012/min |
-| **All-in per minute** | **~$0.093 (৳11.2)** | **~$0.079 (৳9.5)** | **~$0.043 (৳5.2)** |
-| Cost per attempt (1.05 blended min) | ~৳11.8 | ~৳10.0 | ~৳5.5 |
-| With 20% retry overhead | ~৳14.1 | ~৳12.0 | ~৳6.6 |
+| **All-in per minute** | **~$0.093 (৳11.2)** | **~$0.079 (৳9.5)** | **~$0.037 (৳4.4)** |
+| Cost per attempt (1.05 blended min) | ~৳11.8 | ~৳10.0 | ~৳4.6 |
+| With 20% retry overhead | ~৳14.1 | ~৳12.0 | ~৳5.6 |
 
-At 10,000 minutes/month the VPS line drops to ~$0.003/min, and at 30,000 to ~$0.001/min. **Telephony is the dominant cost in every scenario.** That is why local SIP is the single most important cost project after the engine works.
+At 10,000 minutes/month the VPS line drops to ~$0.003/min, and at 30,000 to ~$0.001/min.
 
-**What you save versus a managed caller API:** roughly **$0.05/min** in platform fees and the markup on STT/TTS. On 2,000 calls (~2,100 minutes) that is about **$105–110/month**, plus much better control.
+**The headline:** with a local IPTSP trunk, telephony drops from ~৳7.6 to ~৳0.5 per attempt. AI APIs become the largest cost, not the phone line. That is the single biggest lever in the business — bigger than model choice, bigger than the VPS.
 
-**What you cannot save:** telephony. Twilio BD is $0.060/min; that alone is ৳7.6 for a 1.05-minute attempt. No architecture removes it — only a local carrier does.
+Rates on IPTSP tariff pages are retail and often for a single channel; negotiate wholesale termination for platform volume. See §9.9 for what is legal and what is not.
 
 ### 9.2 Cost-reduction playbook (call-first, no GPU)
 
@@ -1297,12 +1299,12 @@ At 10,000 minutes/month the VPS line drops to ~$0.003/min, and at 30,000 to ~$0.
 
 | Stage | Calls/month | Stack | Cost per attempt | Why |
 |---|---|---:|---:|---|
-| Prototype | < 200 | Own engine + Twilio media streams | ~৳12–14 | Prove the media loop and the script |
-| Pilot | 200–2,000 | Own engine + Twilio/Plivo; local SIP trial | ~৳10–14 | Learn; keep the carrier simple |
-| Early scale | 2,000–10,000 | Own engine + local SIP + cloud AI | ~৳5–7 | Telephony is now the main lever |
-| Scale | 10,000+ | Own engine + local SIP + multi-carrier + reserved API capacity | ~৳4–6 | Margin and reliability |
+| Prototype | < 200 | Own engine + Twilio media streams | ~৳12–14 | Prove the media loop and the script; no SIP procurement yet |
+| Pilot | 200–2,000 | Own engine + Twilio; **one IPTSP trunk in parallel** | ~৳10–14 (Twilio) / ~৳5–6 (IPTSP) | Compare answer rate and voice quality on the same script |
+| Early scale | 2,000–10,000 | Own FreeSWITCH/Kamailio + primary IPTSP + secondary IPTSP | ~৳5–6 | Margin; CLI quality; failover |
+| Scale | 10,000+ | Own SIP core + two or more IPTSPs + reserved API capacity | ~৳4–6 | Reliability and negotiated termination |
 
-**The only “buy” decision left is telephony.** You can start with Twilio/Plivo media streams and move to a local SIP trunk without changing the engine, because the `TelephonyProvider` interface isolates it.
+**The only “buy” decision left is the phone line.** You can start with Twilio/Plivo media streams and move to a BD IPTSP trunk + your own FreeSWITCH without changing the orchestrator, because the `TelephonyProvider` interface isolates it. See §9.9.
 
 **What you should not build:** your own ASR, TTS, or LLM. No GPU, and the APIs are good enough. Use your engineering time on the call loop, the script, and the integrations.
 
@@ -1310,43 +1312,46 @@ At 10,000 minutes/month the VPS line drops to ~$0.003/min, and at 30,000 to ~$0.
 
 Because every order gets a call, price must cover a real call for every order — including no-answers and cancellations.
 
-**Phase A — Twilio-only (pilot):** near-cost pricing is acceptable for the first 500 calls. Margin is thin; treat it as paid learning.
+**Phase A — Twilio (pilot).** Margin is thin, sometimes negative. Treat it as paid learning, not as a business model.
 
-| Plan | Price | Included calls | Overage | Cost at ৳13/attempt | Gross margin |
+**Phase B — own SIP core + IPTSP trunk (target).** Same prices, roughly a third of the cost.
+
+| Plan | Price | Included calls | Overage | Cost to serve included calls (৳4.6/attempt) | Margin on included |
 |---|---:|---:|---:|---:|---:|
-| Starter | ৳3,500/mo | 100 | ৳25 | ৳1,300 | 63% |
-| Growth | ৳8,000/mo | 300 | ৳20 | ৳3,900 | 51% |
-| Scale | ৳16,000/mo | 700 | ৳17 | ৳9,100 | 43% |
+| Starter | ৳3,500/mo | 100 | ৳25 | ৳460 | 87% |
+| Growth | ৳8,000/mo | 300 | ৳20 | ৳1,380 | 83% |
+| Scale | ৳16,000/mo | 700 | ৳17 | ৳3,220 | 80% |
 
-At 1,000 orders, Growth bills ৳8,000 + 700 × ৳20 = **৳22,000** against ~৳15,600 cost: **29% margin**. Workable, not great.
+**A real 1,000-order seller (1,200 attempts) on Growth:**
 
-**Phase B — local SIP (target):** the same prices, with cost at ~৳6/attempt.
+| Line | Twilio now | Own SIP + IPTSP |
+|---|---:|---:|
+| Revenue (৳8,000 + 900 × ৳20) | ৳26,000 | ৳26,000 |
+| Cost to serve (at ৳11.8 / ৳4.6 per attempt) | ৳14,160 | ৳5,520 |
+| Gross profit | ৳11,840 | ৳20,480 |
+| Gross margin | 46% | **79%** |
 
-At 1,000 orders, Growth: **৳22,000** revenue against ~৳7,200 cost: **67% margin**. This is the business.
+**Conclusion:** do not scale on Twilio BD at $0.060/min. Use it to reach the first ~1,000–2,000 calls, then move to your own SIP core with a local IPTSP trunk. Price as if the IPTSP rate is coming, but do not promise “unlimited.”
 
-| Plan | Price | Included calls | Overage | Cost at ৳6/attempt | Gross margin |
-|---|---:|---:|---:|---:|---:|
-| Starter | ৳3,500/mo | 100 | ৳25 | ৳600 | 83% |
-| Growth | ৳8,000/mo | 300 | ৳20 | ৳1,800 | 78% |
-| Scale | ৳16,000/mo | 700 | ৳17 | ৳4,200 | 74% |
-
-**Conclusion:** do not scale on Twilio BD at $0.060/min. Use it to reach the first ~2,000 calls, then sign local SIP. Price as if local SIP is coming, and do not promise “unlimited.”
-
-**Per-confirmed-order alternative:** ৳2,500/mo + ৳30 per confirmed order. At 700 confirmed, revenue is **৳23,500** against ~৳15,600 (Twilio) or ~৳7,200 (local SIP). Use it once answer-rate data is stable.
+**Per-confirmed-order alternative:** ৳2,500/mo + ৳30 per confirmed order. At 700 confirmed, revenue is **৳23,500**; cost is ~৳14,160 on Twilio (40% margin) or ~৳5,520 on IPTSP (76% margin). Use it once answer-rate data is stable.
 
 ### 9.5 Worked example: 1,000 orders/month
 
 Assumptions: 1,000 COD orders; every order gets a call; 1,200 attempts; 1.05 blended minutes; Growth plan ৳8,000 includes 300 calls, ৳20 overage.
 
-| Line | Twilio media streams | Plivo media streams | Local SIP |
+| Line | Twilio media streams | Plivo media streams | Own SIP + BD IPTSP |
 |---|---:|---:|---:|
 | Orders | 1,000 | 1,000 | 1,000 |
 | Call attempts | 1,200 | 1,200 | 1,200 |
 | Minutes | 1,260 | 1,260 | 1,260 |
-| Call cost | ৳14,100 | ৳12,000 | ৳6,600 |
-| Revenue (plan + overage) | ৳22,000 | ৳22,000 | ৳22,000 |
-| Gross profit | ৳7,900 | ৳10,000 | ৳15,400 |
-| Gross margin | 36% | 45% | 70% |
+| Telephony cost | ৳9,120 | ৳6,990 | ৳580 |
+| AI + VPS cost | ৳5,040 | ৳5,040 | ৳5,040 |
+| Total cost | ৳14,160 | ৳12,030 | ৳5,620 |
+| Revenue (plan + overage) | ৳26,000 | ৳26,000 | ৳26,000 |
+| Gross profit | ৳11,840 | ৳13,970 | ৳20,380 |
+| Gross margin | 46% | 54% | **78%** |
+
+Note the shift: **AI + VPS becomes the biggest cost, not telephony.** That changes your optimization priorities — model routing and call length matter more than carrier negotiation once you are on IPTSP.
 
 **Seller value (same assumptions):**
 
@@ -1358,8 +1363,8 @@ Assumptions: 1,000 COD orders; every order gets a call; 1,200 attempts; 1.05 ble
 | Prepaid conversion: 5% × 1,000 × ৳1,500 × 25% margin | ৳18,750 |
 | Half a caller's salary avoided | ৳10,000 |
 | **Total value** | **~৳43,150** |
-| Our price (Growth, 1,000 orders) | ৳22,000 |
-| **Seller ROI** | **~2×** |
+| Our price (Growth, 1,000 orders) | ৳26,000 |
+| **Seller ROI** | **~1.7×** |
 
 The ROI is positive but not huge at 1,000 orders. Target sellers with AOV > ৳1,500 and 1,000+ orders, and sell the address repair and prepaid conversion — not just the call.
 
@@ -1383,7 +1388,8 @@ Position accordingly. If you sell “cheaper calls,” you will lose to a ৳15,
 
 This is an operational risk, not just a line item.
 
-- **Bangladesh:** Twilio lists BD outbound at **$0.060/min**; Plivo at **$0.046/min**. Plivo does not support BD inbound numbers. A local BTRC-licensed SIP trunk/CLI is usually cheaper and gets better answer rates.
+- **Bangladesh:** Twilio lists BD outbound at **$0.060/min**; Plivo at **$0.046/min** (no BD inbound numbers). BTRC-licensed IPTSPs publish **৳0.30–0.40/min + 15% VAT** for IP-telephony-to-mobile calls, and sell SIP trunks with `096` CLI. That is roughly **15–18× cheaper** than Twilio. See §9.9.
+- **Caller ID on 096:** a `096...` number is not a mobile number. Some buyers ignore unknown 096 numbers or phones flag them as spam. Measure answer rate; it can be lower than a mobile CLI even though the call is cheaper.
 - **Global:** Twilio/Telnyx/Plivo local outbound in the US is ~$0.014/min; other markets vary widely. Use a local number per market.
 - **Caller ID matters.** A buyer who sees a foreign number may not pick up. Test answer rate by CLI type before promising results.
 - **Media Streams cost:** Twilio does not charge extra for bidirectional Media Streams beyond the voice minute; confirm current terms for your account. Plivo Audio Streaming is similar.
@@ -1391,6 +1397,125 @@ This is an operational risk, not just a line item.
 - **Keep two carriers per market** so a single outage or price change does not stop the business.
 
 **Do not sign a seller contract promising “95% answer rate” before you have tested local CLI.**
+
+### 9.9 Own telephony: what you can and cannot build in Bangladesh
+
+“Make our own telephony” can mean three very different things. Only one of them is right for this stage.
+
+| Level | What you run | Licence required? | Realistic cost | Verdict |
+|---|---|---|---:|---|
+| **1. Own the SIP/media core** | FreeSWITCH/Kamailio + your orchestrator; you buy a SIP trunk from a licensed IPTSP | **No** — a business buying a trunk is a customer, not an operator | ৳0.30–0.40/min + VAT | **Do this** |
+| **2. White-label / resell voice** | Sell bundled calling to sellers under your brand, riding an IPTSP's licence | Yes in practice: a reseller/partner agreement with a licensed IPTSP, or your own IPTSP licence | Same, plus reseller margin | **Later, with a partner** |
+| **3. Become an operator** | IPTSP, ICX, IGW, or ANS licence | Yes — BTRC licence, capital, bank guarantee, revenue share, compliance | Millions of taka and months-to-years | **No** |
+
+**What this means for you:** you can absolutely own the telephony *software* — SIP routing, media handling, recording, failover, CLI selection, CDRs — without becoming a telecom operator. You still buy the phone line from someone licensed. That is the same model every call-centre software vendor in Bangladesh uses.
+
+#### What is legal, and what will get you shut down
+
+**Legal:**
+
+- Running your own Asterisk/FreeSWITCH/Kamailio and connecting it to a BTRC-licensed IPTSP's SIP trunk.
+- Using a licensed trunk for business/BPO/customer-service calling, with consent and proper records.
+- Getting multiple CLIs/DIDs from the provider and choosing which one to present (within what they allow).
+
+**Illegal or high-risk:**
+
+- **SIM boxes / GSM gateways** used for call termination. BTRC and NTMC raid these regularly. In July 2026 BTRC fined the four mobile operators **৳8.68 crore** over 8,682 SIMs used for illegal VoIP termination — and that is the operator-side penalty, not the operator of the SIM box.
+- **Terminating international traffic through unlicensed gateways.** Violates the Bangladesh Telecommunication Regulation Act 2001 and ILDTS policy.
+- **Spoofing CLIs** you do not own, or presenting a mobile number you do not control. Providers who offer “any CLI you want” are a compliance risk, not a bargain.
+- **Reselling trunk capacity** to sellers without a licence or a reseller agreement with the licence holder.
+- **Bulk unsolicited calling.** Even where technically possible, it invites complaints, blocks, and regulatory attention.
+
+> The regulatory framework is in transition. The draft Telecommunication Network and Licensing Regime Reform Policy 2025 proposes replacing IGW/IIG/ICX with ICSP/NICSP/ANSP categories by 2027 and deregulating call-centre registration. **Get a local telecom lawyer to review your model before you resell anything.** This section is a planning input, not legal advice.
+
+#### Architecture: own SIP core + licensed trunk
+
+```mermaid
+flowchart LR
+  P[Buyer phone] --> MOB[Mobile operator / PSTN]
+  MOB --> ICX[ICX]
+  ICX --> IPTSP[Licensed IPTSP<br/>096 SIP trunk]
+  IPTSP -->|SIP + RTP<br/>G.711| EDGE[Your SIP edge<br/>Kamailio / FreeSWITCH<br/>Dhaka POP]
+  EDGE -->|audio WebSocket| ORCH[voice-engine<br/>Pipecat]
+  ORCH --> AI[STT / LLM / TTS APIs]
+  AI --> ORCH
+  ORCH -->|audio back| EDGE
+  EDGE --> IPTSP
+  ORCH --> CDR[(CDR · recordings · outcomes)]
+```
+
+You are replacing **Twilio's media stream + markup** with **your own media server + an IPTSP interconnect**. The orchestrator, prompts, tools, and outcome logic do not change.
+
+#### What you actually build
+
+**SIP edge (pick one):**
+
+- **FreeSWITCH** — fastest to a working call: mod_sofia for SIP, mod_audio_stream (or mod_websocket) for real-time audio to your engine, mod_dptools for playback/record/transfer, mod_json_cdr for CDRs.
+- **Kamailio + FreeSWITCH/rtpengine** — better at scale and security; Kamailio handles SIP/registration/least-cost routing, FreeSWITCH handles media and IVR.
+- **LiveKit SIP** — modern, WebRTC-native, simpler orchestration integration; less battle-tested for dense PSTN trunking in BD.
+
+For v1: **FreeSWITCH alone**, on a Dhaka VPS, with `mod_audio_stream` feeding Pipecat.
+
+**Checklist:**
+
+- [ ] FreeSWITCH 1.10, `mod_sofia`, `mod_audio_stream`, `mod_dptools`, `mod_sndfile`, `mod_json_cdr`.
+- [ ] Codecs **PCMA/PCMU only**; no transcoding; 20 ms ptime.
+- [ ] RTP UDP range open in the firewall (e.g., 16384–32768); public static IP, no NAT.
+- [ ] SIP over UDP first, **TLS** once stable; IP allowlist with the provider beside registration auth.
+- [ ] SIP OPTIONS keepalive every 30 s; on failure, fail over to the secondary trunk automatically.
+- [ ] Concurrency: know your channel limit per trunk; buy headroom for peak order hours.
+- [ ] CLI: use the provider's assigned `096` number(s); ask for a pool; **never spoof**.
+- [ ] DTMF: RFC2833 (`telephone-event`), not in-band.
+- [ ] Recording: `record_session` locally, upload to object storage, 90-day retention.
+- [ ] CDR: push to Postgres with `uuid`, `to`, `from`, `duration`, `billsec`, `hangup_cause`.
+- [ ] Hangup-cause mapping: busy, no-answer, rejected, network failure → your outcome enum.
+- [ ] **Toll-fraud lockdown:** no international dialling, no premium prefixes, max concurrent calls per tenant, destination allowlist (`8801` mobiles only).
+- [ ] `fail2ban`, SIP rate limiting, ACLs, no default passwords, separate credentials per tenant/trunk.
+- [ ] Monitoring: PDD, jitter, packet loss, MOS estimate, ASR failure rate, one-way audio alarms.
+
+**Hosting and latency:**
+
+- Put the **SIP edge in Dhaka** (a local IDC or a BDIX-peered host) so the leg to the IPTSP stays short.
+- Put the **orchestrator next to it**; the WebSocket hop should be < 5 ms.
+- AI APIs will be ~60–120 ms away (Singapore). That is fine — it is inside your 1.5 s budget.
+- Do **not** route domestic media through Singapore or Europe “because the VPS is cheaper.” Jitter on the RTP leg ruins the call.
+
+#### Provider checklist — questions to ask an IPTSP
+
+1. Are you BTRC-licensed? Which category, and what is the licence number?
+2. Do you sell **SIP trunk / wholesale termination**, or only per-extension IP phones?
+3. Per-minute rate to **each** mobile operator (GP, Robi, Banglalink, Teletalk) and to BTCL — and the **pulse** (1 s vs 60 s billing).
+4. Minimum monthly commitment, per-channel fees, setup fees, and whether unused minutes roll over.
+5. Concurrency/channel limits; how to burst for peak hours.
+6. CLI options: how many `096` numbers, can you rotate a pool, do you offer DIDs, any mobile-range CLI (treat “yes” as a red flag).
+7. Transport: UDP/TLS; IP auth vs registration; codecs supported.
+8. Routes and redundancy: multiple upstreams? automatic failover? published SLA?
+9. Inbound DIDs for callbacks and missed-call follow-up.
+10. Billing granularity, VAT, prepaid or postpaid, invoice detail, CDR access, dispute process.
+11. KYC/use-case declaration; do they prohibit telemarketing or bulk dialling?
+12. Trial trunk and free test minutes — insist on 200 real calls before signing.
+
+**Red flags:** offers to display any mobile number; no written licence; no CDR access; per-minute rates far below the market (grey route); requires you to install “their box” on your network.
+
+#### Rollout gates
+
+| Gate | Test | Pass criteria |
+|---|---|---|
+| 1. Voice quality | 200 calls on one IPTSP trunk | PDD < 3 s, jitter < 30 ms, drop rate < 2%, no one-way audio |
+| 2. Answer rate | 200 calls vs Twilio, same script, same hours | Within 5 points of Twilio (or better) |
+| 3. Cost | Cost per **confirmed order**, not per dial | < ৳6 per attempt |
+| 4. Resilience | Kill the primary trunk mid-day | Secondary takes over; < 1% failed calls |
+| 5. Compliance | Consent, DNC, recording disclosure, CLI | Reviewed by counsel; documented |
+
+If gate 2 fails badly, do not “fix” it by calling more. Fix the CLI or the pre-call notice, or stay on Twilio for that seller segment.
+
+#### What owning telephony does *not* give you
+
+- It does not make unsolicited calls legal.
+- It does not remove the need for consent records and a DNC list.
+- It does not guarantee a recognisable caller ID.
+- It does not improve the AI; it only changes the unit economics.
+- It does not remove the need for a second provider when the first has an outage.
 
 ### 9.8 What to charge for beyond the plan
 
@@ -1520,13 +1645,13 @@ Start simple:
 ### Phase 2 — Pilot + cost optimization (weeks 4–6)
 
 - 3–5 sellers; 1,000+ calls.
-- Own-orchestration voice engine: Pipecat service + Twilio media streams + cloud STT/TTS/LLM; local SIP trial.
-- Measure cost per attempt on Twilio vs. Plivo media streams vs. local SIP.
+- Own-orchestration voice engine: Pipecat service + Twilio media streams + cloud STT/TTS/LLM.
+- FreeSWITCH + one IPTSP trunk in parallel; measure cost per attempt on Twilio vs. Plivo vs. IPTSP.
 - A/B control group; RTO measurement.
 - WooCommerce plugin.
 - SMS pre-notice + missed-call follow-up.
 - Billing/usage metering (manual invoices okay).
-- Local SIP trial in parallel with Twilio media streams.
+- IPTSP trunk procurement + FreeSWITCH spike in parallel with Twilio (200-call comparison).
 - Google Sheets + WooCommerce connectors.
 - Script iteration from real calls.
 - **Exit criteria:** 3 sellers willing to pay; confirmation rate > 65%; cost per attempt < ৳14 on Twilio and < ৳8 on local SIP; first-audio latency < 1.5s at p50.
@@ -1551,7 +1676,7 @@ Start simple:
 - Agency white-label.
 - Prepaid conversion + upsell.
 - Analytics: RTO, saved revenue, agent performance, cost per confirmed order.
-- Second telephony carrier + SIP failover; API cost/latency review.
+- Own SIP core in Dhaka + second IPTSP trunk + automatic failover; CLI pool; API cost/latency review.
 - Security review, DPA, SOC2-lite readiness.
 - **Exit criteria:** 20–30 paying sellers; positive contribution margin; < 5% monthly churn.
 
@@ -1647,6 +1772,9 @@ A solo founder can do Phase 0–1 with a voice vendor, but **native-language QA 
 | Telephony regulation / consent | Medium | High | Licensed local partner; consent records; DNC; local counsel |
 | Unit economics worse than planned | Medium | High | Own orchestration; local SIP; short calls; higher-AOV ICP; per-confirmed pricing |
 | Telephony price/route changes | Medium | Medium | Two carriers per market; cost alerts; pass-through/BYO option |
+| 096 CLI reputation / low answer rate | High | High | Measure per CLI; pre-call Messenger/SMS notice; test mobile-CLI options via provider; segment sellers by tolerance |
+| SIP toll fraud / unauthorised dialling | Medium | High | Destination allowlist (BD mobiles only), concurrency caps, fail2ban, TLS, IP ACLs, per-tenant credentials |
+| Regulatory breach from reselling voice | Medium | High | Operate under a licensed IPTSP partner agreement; local counsel before reselling; no SIM boxes or CLI spoofing |
 | BYO support burden | Medium | Medium | Self-serve docs; health checks; paid onboarding; limit BYO to Growth+ |
 | Own voice engine ops (latency, barge-in, stream failures) | High | High | Golden set + load tests; per-turn latency metrics; fallback TwiML + human transfer; on-call runbook |
 | API provider outage or price change | Medium | High | Two providers per layer (STT/TTS/LLM); circuit breakers; cache fixed prompts; contract review |
@@ -1726,7 +1854,15 @@ These are the decisions that change the plan. My recommendation is in bold.
 - Require 100+ real calls, slot accuracy > 90%, and a native reviewer before launch.
 - Do not launch 10 languages to look global; support 2 well, then expand.
 
-### 14.8 Who pays for telephony?
+### 14.8 Do we own the SIP core or rent a carrier's?
+
+- **Own the SIP core (recommended).** FreeSWITCH/Kamailio in Dhaka + a licensed IPTSP trunk. ৳0.40/min instead of $0.060; full control of CLI, recording, failover, and CDRs.
+- **Rent a carrier's media streams** (Twilio/Plivo) for the pilot and as a permanent secondary route. Zero ops burden, high per-minute cost.
+- **Do both:** own trunk as primary, Twilio as fallback for the first months. This is the lowest-risk path.
+- Do **not** become an IPTSP/ICX/IGW operator. Not at this stage.
+- Do **not** resell telephony until you have a written reseller agreement with a licensed IPTSP and local legal review.
+
+### 14.9 Who pays for telephony?
 
 - **Platform pays (default):** simpler for the seller; you control quality; higher price.
 - **Seller pays (BYO):** lower COGS and better margin for you; more support burden; best for Scale/enterprise.
@@ -1778,11 +1914,21 @@ The repo is currently empty, so the build order matters more than usual. The goa
 ### Step 5 — Own voice engine (2–3 weeks)
 
 - `voice-engine` service: Pipecat + call state machine.
-- Twilio bidirectional Media Streams first (WebSocket, μ-law 8 kHz); Plivo next.
+- Twilio bidirectional Media Streams first (WebSocket, μ-law 8 kHz) — fastest way to hear a real call.
 - Cloud STT/TTS/LLM adapters with per-language fallback.
 - Barge-in, VAD, voicemail detection, DTMF, transfer.
 - Call webhooks: started, transcript chunk, ended, outcome.
 - **Demo:** call your own phone from the dashboard in either language, on your own pipeline.
+
+### Step 5b — Own telephony (1–2 weeks, parallel)
+
+- FreeSWITCH in Dhaka with `mod_sofia` + `mod_audio_stream` + `mod_json_cdr`.
+- One IPTSP SIP trunk; IP auth + registration; PCMA/PCMU only.
+- Bridge audio to the same `voice-engine` WebSocket interface used for Twilio — the orchestrator must not know which carrier is behind it.
+- Destination allowlist (`8801` only), concurrency caps, fail2ban, recording upload.
+- CDR → Postgres; hangup-cause mapping.
+- 200-call A/B against Twilio: answer rate, PDD, jitter, drop rate, cost per attempt.
+- **Demo:** the same script runs unchanged on Twilio and on your own trunk.
 
 ### Step 6 — Rules, cost guard, reliability (4–5 days)
 
@@ -1843,6 +1989,13 @@ Primary sources for the policy and pricing claims in this document (accessed 23 
 - Meta, **Lead Ads webhooks** — required permissions and setup: https://developers.facebook.com/docs/graph-api/webhooks/getting-started/webhooks-for-leadgen/
 - Meta, **Marketing Messages on Messenger** — paid opt-in outside the window: https://developers.facebook.com/documentation/business-messaging/messenger-platform/marketing-messages-on-messenger
 - Twilio, **Voice pricing — Bangladesh** ($0.060/min): https://www.twilio.com/en-us/voice/pricing/bd
+- Twilio, **Bangladesh regulatory guidelines** (number requirements): https://www.twilio.com/en-us/guidelines/bd/regulatory
+- BOL Online, **IPTSP tariff** (৳0.40/min to any PLMN/PSTN): https://www.bol-online.com/iptsp-tariff
+- Premium Connectivity, **IPTSP tariff** (৳0.40/min + VAT): https://www.pmcon.net/iptsp.php
+- IPCallBD, **SIP trunking / bulk voice in Bangladesh**: https://ipcall.bd/
+- BTRC, **IPTSP licensing guidelines** (ILTDS policy rules): https://lims.btrc.gov.bd/uploads/service_guideline/IPTSP%20Guideline.pdf
+- BTRC, **Telecommunication Network and Licensing Regime Reform Policy 2025** (coverage): https://www.bssnews.net/news/266038
+- The Daily Star, **BTRC fines four operators ৳8.68 crore over illegal VoIP SIMs** (July 2026): https://www.thedailystar.net/business/news/btrc-fines-four-mobile-operators-tk-868cr-over-illegal-voip-sims-4232781
 - Plivo, **Voice pricing — Bangladesh** ($0.046/min): https://www.plivo.com/voice/pricing/bd/
 - ElevenLabs, **Models and languages** (Bengali on v3/v4): https://elevenlabs.io/docs/overview/models
 - Microsoft Azure, **Speech language support** (`bn-BD` voices; STT availability): https://learn.microsoft.com/en-us/azure/ai-services/speech-service/language-support
@@ -2208,13 +2361,14 @@ qa:
 ## The one-page version
 
 - **Product:** AI confirms COD orders in the seller's language and brand within 5 minutes, and returns a structured outcome.
+- **Telephony:** own the SIP/media core (FreeSWITCH in Dhaka); buy the line from a BTRC-licensed IPTSP. No licence needed to use a trunk; one is needed to resell telephony.
 - **Model:** B2B SaaS sold to sellers; buyers are their customers; white-label calls.
 - **Language:** per-seller setting. Bangla + English first; new markets are language packs + local telephony, not rewrites.
 - **Facebook reality:** no outbound calling API; Messenger is intake + in-window chat; phone number must be collected; App Review is the long pole.
 - **Build order:** foundation + language config → integration hub → call simulator → own CPU voice engine → Messenger → connectors.
 - **Moat:** language-pack quality + FB-native order extraction + courier/outcome data + the integration layer sellers build their operations on.
 - **Business model:** platform fee + included calls + overage, or platform fee + per-confirmed order; ~30% margin on Twilio, ~70% on local SIP; BYO telephony option.
-- **Cost strategy:** own the orchestration layer (no per-minute platform) + local SIP + short calls + small cloud models. No GPU, no caller API.
+- **Cost strategy:** own the orchestration layer (no per-minute platform) + own SIP core with a licensed IPTSP trunk (~৳0.40/min vs Twilio $0.060) + short calls + small cloud models. No GPU, no caller API.
 - **Biggest risk:** telephony cost/answer rates, per-language quality, and voice-engine latency. All engineering and ops problems, not marketing problems.
 - **Proof:** 50/50 pilot, measured RTO, 3 paying sellers, cost per attempt under target before scaling.
 
